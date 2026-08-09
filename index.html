@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AuraPlan Studio - Operating System pour Projets & Planning</title>
+  <title>AuraPlan Studio - Project & Resource OS</title>
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -32,7 +32,7 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Yjs + y-webrtc (Temps réel P2P sans serveur) -->
+  <!-- Yjs + y-webrtc (Temps réel P2P) -->
   <script src="https://cdn.jsdelivr.net/npm/yjs@13/dist/yjs.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/y-webrtc@10/dist/y-webrtc.js"></script>
 
@@ -50,7 +50,7 @@
   <script type="text/babel">
     const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
-    // --- HELPERS DATES & UTILS ---
+    // --- HELPERS UTILS & DATES ---
     const utf8_to_b64 = (str) => window.btoa(unescape(encodeURIComponent(str)));
     const b64_to_utf8 = (str) => decodeURIComponent(escape(window.atob(str)));
 
@@ -124,7 +124,7 @@
     function AuraPlanApp() {
       // 1. États Généraux
       const [projects, setProjects] = useState(() => {
-        const saved = localStorage.getItem('auraplan_projects_v5');
+        const saved = localStorage.getItem('auraplan_projects_v6');
         return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
       });
 
@@ -132,18 +132,19 @@
       const [selectedProjectId, setSelectedProjectId] = useState('proj-1');
       const [editingTask, setEditingTask] = useState(null);
       const [splittingTask, setSplittingTask] = useState(null);
-      const [splitMode, setSplitMode] = useState('half_day'); // 'half_day' (0.5j) | 'daily' (1j) | 'custom'
-      const [splitCustomParts, setSplitCustomParts] = useState(2);
       
-      const [columnWidth, setColumnWidth] = useState(56);
+      // Morceaux de scission personnalisée (ex: [4, 0.5, 0.5])
+      const [splitSegments, setSplitSegments] = useState([1, 1]);
+
+      const [columnWidth, setColumnWidth] = useState(90); // Largeur de colonne jour (coupée en 2)
 
       // Contrôle des Panneaux Gauche & Droit (Roadmap)
       const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
       const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
 
       // Accordions Inspecteur Droit
-      const [isAddTaskFolded, setIsAddTaskFolded] = useState(true); // Plié par défaut
-      const [isProjectEditFolded, setIsProjectEditFolded] = useState(true); // En ROUGE à la fin, plié par défaut
+      const [isAddTaskFolded, setIsAddTaskFolded] = useState(true);
+      const [isProjectEditFolded, setIsProjectEditFolded] = useState(true);
 
       // Kanban Drag & Ghosting
       const [draggingKanbanTaskId, setDraggingKanbanTaskId] = useState(null);
@@ -161,11 +162,10 @@
         title: '', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 2, status: 'TODO'
       });
 
-      // Drag Engine State (Roadmap Projects)
+      // Drag Engines & Ref de détection du glissement
       const [dragState, setDragState] = useState(null);
-      
-      // Drag Engine State (Planning Tasks Move)
       const [planningDragState, setPlanningDragState] = useState(null);
+      const hasDraggedPlanningTask = useRef(false);
       const dragAnimRef = useRef(null);
 
       // GitHub REST API & WebRTC P2P
@@ -243,8 +243,8 @@
         return Array.from(set);
       }, [allFlatTasks]);
 
-      // Persistance LocalStorage
-      useEffect(() => localStorage.setItem('auraplan_projects_v5', JSON.stringify(projects)), [projects]);
+      // Persistance
+      useEffect(() => localStorage.setItem('auraplan_projects_v6', JSON.stringify(projects)), [projects]);
       useEffect(() => localStorage.setItem('gh_config', JSON.stringify(ghConfig)), [ghConfig]);
 
       // WebRTC Sync (Yjs)
@@ -335,49 +335,47 @@
         broadcastProjects(updated);
       };
 
-      // --- ALGORITHME DE PLANNING EXPLICITE (LIGNE MATIN / LIGNE APRES-MIDI) ---
+      // --- ALGORITHME DE PLANNING AVEC COLONNES COUPÉES EN 2 (AM/PM) ET EMPILEMENT VERTICAL ---
       const calculateCollaboratorLanes = (personTasks) => {
-        const amTasks = [];
-        const pmTasks = [];
+        const sorted = [...personTasks].sort((a, b) => {
+          const tA = parseDate(a.startDate || a.project.startDate).getTime() + (a.slot === 'PM' ? 43200000 : 0);
+          const tB = parseDate(b.startDate || b.project.startDate).getTime() + (b.slot === 'PM' ? 43200000 : 0);
+          return tA - tB;
+        });
 
-        personTasks.forEach(task => {
+        const lanes = [];
+
+        const placedTasks = sorted.map(task => {
           const startDays = diffDays(parseDate(task.startDate || task.project.startDate), timelineStartDate) + (task.slot === 'PM' ? 0.5 : 0);
           const endDays = startDays + Number(task.duration);
-          const tObj = { ...task, startDays, endDays };
 
-          if (task.slot === 'PM') pmTasks.push(tObj);
-          else amTasks.push(tObj);
+          let laneIndex = lanes.findIndex(freeDay => freeDay <= startDays);
+          if (laneIndex === -1) {
+            laneIndex = lanes.length;
+            lanes.push(endDays);
+          } else {
+            lanes[laneIndex] = endDays;
+          }
+
+          return { ...task, laneIndex, startDays, endDays };
         });
 
-        // Empilement interne Ligne Matin (AM)
-        const amLanes = [];
-        const placedAM = amTasks.map(task => {
-          let lane = amLanes.findIndex(freeDay => freeDay <= task.startDays);
-          if (lane === -1) { lane = amLanes.length; amLanes.push(task.endDays); }
-          else { amLanes[lane] = task.endDays; }
-          return { ...task, laneIndex: lane, rowZone: 'AM' };
-        });
-
-        // Empilement interne Ligne Après-Midi (PM)
-        const pmLanes = [];
-        const placedPM = pmTasks.map(task => {
-          let lane = pmLanes.findIndex(freeDay => freeDay <= task.startDays);
-          if (lane === -1) { lane = pmLanes.length; pmLanes.push(task.endDays); }
-          else { pmLanes[lane] = task.endDays; }
-          return { ...task, laneIndex: lane, rowZone: 'PM' };
-        });
-
-        const maxAMLanes = Math.max(1, amLanes.length);
-        const maxPMLanes = Math.max(1, pmLanes.length);
-
+        const totalLanes = Math.max(1, lanes.length);
         return {
-          placedTasks: [...placedAM, ...placedPM],
-          amCount: maxAMLanes,
-          pmCount: maxPMLanes,
-          amHeight: maxAMLanes * 34,
-          pmHeight: maxPMLanes * 34,
-          rowHeight: maxAMLanes * 34 + maxPMLanes * 34 + 28
+          placedTasks,
+          totalLanes,
+          rowHeight: totalLanes * 36 + 24
         };
+      };
+
+      // CALCUL DU BADGE DE TÂCHES PAR JOUR POUR UN COLLABORATEUR
+      const getTasksCountForDay = (personTasks, dayDate) => {
+        const dayIso = formatDateIso(dayDate);
+        return personTasks.filter(t => {
+          const tStart = parseDate(t.startDate);
+          const tEnd = addDays(tStart, Math.ceil(t.duration) - 1);
+          return dayDate >= tStart && dayDate <= tEnd;
+        }).length;
       };
 
       // DRAG ENGINE ROADMAP (PROJETS)
@@ -439,10 +437,11 @@
         };
       }, [dragState, columnWidth, projects, broadcastProjects]);
 
-      // DRAG ENGINE PLANNING (GLISSER-DÉPOSER DES BLOCS DE TÂCHES AU FIL DES JOURS)
+      // DRAG ENGINE PLANNING SANS OUVERTURE D'INSPECTEUR
       const handlePlanningMouseDown = (e, task) => {
         e.stopPropagation();
         e.preventDefault();
+        hasDraggedPlanningTask.current = false;
 
         setPlanningDragState({
           taskId: task.id,
@@ -455,6 +454,10 @@
       useEffect(() => {
         const handleMouseMovePlanning = (e) => {
           if (!planningDragState) return;
+
+          if (Math.abs(e.clientX - planningDragState.startX) > 4) {
+            hasDraggedPlanningTask.current = true;
+          }
 
           if (dragAnimRef.current) cancelAnimationFrame(dragAnimRef.current);
 
@@ -469,11 +472,13 @@
 
         const handleMouseUpPlanning = () => {
           if (planningDragState) {
-            const updatedProjects = projects.map(p => ({
-              ...p,
-              tasks: (p.tasks || []).map(t => t.id === planningDragState.taskId ? { ...t, startDate: planningDragState.currentStartDate } : t)
-            }));
-            broadcastProjects(updatedProjects);
+            if (hasDraggedPlanningTask.current) {
+              const updatedProjects = projects.map(p => ({
+                ...p,
+                tasks: (p.tasks || []).map(t => t.id === planningDragState.taskId ? { ...t, startDate: planningDragState.currentStartDate } : t)
+              }));
+              broadcastProjects(updatedProjects);
+            }
           }
           setPlanningDragState(null);
         };
@@ -538,36 +543,55 @@
 
         const spanDays = diffDays(latest, earliest) + 4;
         const availableWidth = container.clientWidth - 10;
-        const calculatedWidth = Math.max(12, Math.floor(availableWidth / spanDays));
+        const calculatedWidth = Math.max(16, Math.floor(availableWidth / spanDays));
 
         setColumnWidth(calculatedWidth);
         container.scrollLeft = 0;
       };
 
-      // EXECUTION SCISSION PLANNING UNIQUEMENT (0.5j / 1j)
-      const executeMultiSplitTask = (e) => {
+      // INIT MODAL SCISSION AVEC DUREE EXACTE (EX: 5.5j -> [4, 0.5, 0.5])
+      const openSplitModal = (task) => {
+        setSplittingTask(task);
+        if (task.duration === 5.5) {
+          setSplitSegments([4, 0.5, 0.5]);
+        } else if (task.duration > 1) {
+          const half = Number((task.duration / 2).toFixed(1));
+          setSplitSegments([half, Number((task.duration - half).toFixed(1))]);
+        } else {
+          setSplitSegments([0.5, 0.5]);
+        }
+      };
+
+      const executeFlexibleSplit = (e) => {
         e.preventDefault();
         if (!splittingTask) return;
 
+        const sum = splitSegments.reduce((a, b) => a + Number(b), 0);
+        if (Math.abs(sum - splittingTask.duration) > 0.01) {
+          alert(`La somme des morceaux (${sum}j) ne correspond pas à la durée initiale (${splittingTask.duration}j).`);
+          return;
+        }
+
         const newCreatedTasks = [];
-        const baseTask = splittingTask;
+        let currDate = parseDate(splittingTask.startDate);
+        let currSlot = splittingTask.slot || 'AM';
 
-        if (splitMode === 'half_day') {
-          const totalSlots = Math.ceil(baseTask.duration * 2);
-          let currDate = parseDate(baseTask.startDate);
-          let currSlot = baseTask.slot || 'AM';
+        splitSegments.forEach((segDuration, idx) => {
+          newCreatedTasks.push({
+            id: `t-${splittingTask.project.id}-${Date.now()}-${idx}`,
+            title: `${splittingTask.title} (Partie ${idx + 1}/${splitSegments.length})`,
+            assignee: splittingTask.assignee,
+            startDate: formatDateIso(currDate),
+            slot: currSlot,
+            duration: Number(segDuration),
+            status: splittingTask.status
+          });
 
-          for (let i = 0; i < totalSlots; i++) {
-            newCreatedTasks.push({
-              id: `t-${baseTask.project.id}-${Date.now()}-${i}`,
-              title: `${baseTask.title} (${currSlot === 'AM' ? 'Matin' : 'PM'} ${i + 1})`,
-              assignee: baseTask.assignee,
-              startDate: formatDateIso(currDate),
-              slot: currSlot,
-              duration: 0.5,
-              status: baseTask.status
-            });
-
+          const addedDays = Math.floor(segDuration);
+          const remainder = segDuration % 1;
+          
+          currDate = addDays(currDate, addedDays);
+          if (remainder >= 0.5) {
             if (currSlot === 'AM') {
               currSlot = 'PM';
             } else {
@@ -575,43 +599,13 @@
               currDate = addDays(currDate, 1);
             }
           }
-        } else if (splitMode === 'daily') {
-          const daysCount = Math.ceil(baseTask.duration);
-          for (let i = 0; i < daysCount; i++) {
-            newCreatedTasks.push({
-              id: `t-${baseTask.project.id}-${Date.now()}-${i}`,
-              title: `${baseTask.title} (Jour ${i + 1})`,
-              assignee: baseTask.assignee,
-              startDate: formatDateIso(addDays(parseDate(baseTask.startDate), i)),
-              slot: baseTask.slot || 'AM',
-              duration: 1,
-              status: baseTask.status
-            });
-          }
-        } else {
-          const parts = Math.max(2, Number(splitCustomParts));
-          const partDuration = Number((baseTask.duration / parts).toFixed(1));
-          let currentOffsetDate = parseDate(baseTask.startDate);
-
-          for (let i = 0; i < parts; i++) {
-            newCreatedTasks.push({
-              id: `t-${baseTask.project.id}-${Date.now()}-${i}`,
-              title: `${baseTask.title} (Partie ${i + 1}/${parts})`,
-              assignee: baseTask.assignee,
-              startDate: formatDateIso(currentOffsetDate),
-              slot: baseTask.slot || 'AM',
-              duration: partDuration,
-              status: baseTask.status
-            });
-            currentOffsetDate = addDays(currentOffsetDate, Math.max(1, Math.floor(partDuration)));
-          }
-        }
+        });
 
         const updatedProjects = projects.map(p => {
-          if (p.id !== baseTask.project.id) return p;
+          if (p.id !== splittingTask.project.id) return p;
           const newTasks = [];
           p.tasks.forEach(t => {
-            if (t.id === baseTask.id) newTasks.push(...newCreatedTasks);
+            if (t.id === splittingTask.id) newTasks.push(...newCreatedTasks);
             else newTasks.push(t);
           });
           return { ...p, tasks: newTasks };
@@ -826,7 +820,7 @@
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-slate-300">Zoom :</span>
                   <input 
-                    type="range" min="12" max="130" value={columnWidth} 
+                    type="range" min="30" max="180" value={columnWidth} 
                     onChange={e => setColumnWidth(Number(e.target.value))}
                     className="w-32 accent-indigo-500 cursor-pointer"
                   />
@@ -847,7 +841,7 @@
             {/* VUE 1 : ROADMAP MACRO */}
             {activeTab === 'roadmap' && (
               <>
-                {/* Panneau Gauche : Liste des Projets (Réductible) */}
+                {/* Panneau Gauche : Liste des Projets */}
                 {isLeftPanelOpen ? (
                   <div className="w-80 border-r border-aura-border bg-aura-card flex flex-col shrink-0 transition-all">
                     <div className="h-16 border-b border-aura-border px-4 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
@@ -1005,11 +999,11 @@
                   </div>
                 </div>
 
-                {/* PANNEAU DROIT INSPECTEUR AVEC NUANCES ET MODIFICATION DU PROJET ROUGE PLIÉ EN FIN */}
+                {/* PANNEAU DROIT INSPECTEUR AVEC ORGANISATION STRUCTURÉE & MODIFICATION ROUGE A LA FIN */}
                 {isRightPanelOpen && selectedProject ? (
                   <div className="w-80 border-l border-aura-border bg-aura-card p-5 flex flex-col justify-between shrink-0 overflow-y-auto transition-all">
                     <div>
-                      {/* SECTION 1 : EN-TÊTE ET BREADCRUMB (NUANCE INDIGO) */}
+                      {/* SECTION 1 : RESUME ET BADGE (INDIGO) */}
                       <div className="p-4 rounded-2xl bg-indigo-950/20 border border-indigo-500/30 shadow-lg mb-4">
                         <div className="flex items-center justify-between mb-3">
                           <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
@@ -1020,7 +1014,7 @@
                         <h2 className="font-extrabold text-sm text-slate-100">{selectedProject.title}</h2>
                       </div>
 
-                      {/* SECTION 2 : HEALTH CHECK ET ALIGNEMENT (NUANCE AMBRE / ÉMERAUDE) */}
+                      {/* SECTION 2 : HEALTH CHECK & ALIGNEMENT (AMBRE/EMERAUDE) */}
                       {(() => {
                         const health = getProjectHealth(selectedProject);
                         return (
@@ -1046,13 +1040,13 @@
                         );
                       })()}
 
-                      {/* SECTION 3 : LISTE DES TÂCHES RÉELLES (NUANCE CYAN) */}
+                      {/* SECTION 3 : LISTE DES TÂCHES RÉELLES (CYAN) */}
                       <div className="p-4 rounded-2xl bg-cyan-950/10 border border-cyan-500/20 mb-4">
                         <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-3">
                           Tâches Réelles ({selectedProject.tasks?.length || 0})
                         </h3>
 
-                        <div className="space-y-2 mb-2">
+                        <div className="space-y-2">
                           {(selectedProject.tasks || []).map(task => (
                             <div key={task.id} className="p-2.5 bg-aura-bg rounded-xl border border-aura-border flex items-center justify-between text-xs">
                               <div className="truncate pr-2">
@@ -1072,7 +1066,7 @@
                         </div>
                       </div>
 
-                      {/* SECTION 4 : FORMULAIRE D'AJOUT TÂCHE (PLIÉ PAR DÉFAUT) */}
+                      {/* SECTION 4 : FORMULAIRE CRÉATION DE TÂCHE (PLIÉ PAR DÉFAUT) */}
                       <div className="mb-4 rounded-2xl border border-indigo-500/30 bg-indigo-950/10 overflow-hidden transition-all">
                         <button 
                           onClick={() => setIsAddTaskFolded(!isAddTaskFolded)}
@@ -1130,7 +1124,7 @@
                         )}
                       </div>
 
-                      {/* SECTION 5 : MODIFICATION DU PROJET (ROUGE / DANGER - EN FIN ET PLIÉ PAR DÉFAUT) */}
+                      {/* SECTION 5 : MODIFICATION & SUPPRESSION PROJET (ZONE ROUGE - PLIÉ PAR DÉFAUT EN FIN) */}
                       <div className="rounded-2xl border border-rose-500/40 bg-rose-950/20 overflow-hidden transition-all">
                         <button 
                           onClick={() => setIsProjectEditFolded(!isProjectEditFolded)}
@@ -1297,68 +1291,75 @@
               </div>
             )}
 
-            {/* VUE 3 : PLANNING COLLABORATEUR (SOUS-LIGNES MATIN / APRES-MIDI + DRAG HORIZONTAL) */}
+            {/* VUE 3 : PLANNING COLLABORATEUR (COLONNES DÉCORDÉES MATIN / PM + BADGE TÂCHES) */}
             {activeTab === 'planning' && (
               <div id="timeline-viewport" className="flex-1 flex flex-col overflow-x-auto bg-aura-bg">
-                <div className="h-10 border-b border-aura-border flex items-center shrink-0 bg-slate-900/80 sticky top-0 z-10" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
+                {/* Header Calendrier avec Sous-Colonnes Matin / PM */}
+                <div className="h-12 border-b border-aura-border flex items-center shrink-0 bg-slate-900/80 sticky top-0 z-10" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   <div className="w-60 px-4 font-bold text-xs text-slate-400 border-r border-aura-border">Collaborateurs</div>
                   <div className="flex-1 flex">
                     {Array.from({ length: totalTimelineDays }).map((_, i) => {
                       const dayDate = addDays(timelineStartDate, i);
                       const isToday = formatDateIso(dayDate) === TODAY_STR;
                       return (
-                        <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r border-aura-border/50 flex flex-col items-center justify-center text-[10px] ${isToday ? 'bg-indigo-500/20 text-indigo-400 font-bold' : 'text-slate-400'}`}>
-                          <span className="text-[8px] uppercase">{dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span>
-                          <span>{dayDate.getDate()}</span>
+                        <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r border-aura-border/50 flex flex-col items-center justify-between py-1 text-[10px] ${isToday ? 'bg-indigo-500/20 text-indigo-400 font-bold' : 'text-slate-400'}`}>
+                          <div className="flex items-center gap-1">
+                            <span className="uppercase font-bold text-[9px]">{dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span>
+                            <span>{dayDate.getDate()}</span>
+                          </div>
+                          <div className="w-full flex text-[8px] font-mono text-slate-500 border-t border-aura-border/30 pt-0.5">
+                            <div className="w-1/2 text-center border-r border-aura-border/20">☀️ AM</div>
+                            <div className="w-1/2 text-center">🌙 PM</div>
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 </div>
 
+                {/* Planning par Collaborateur */}
                 <div className="flex-1 overflow-y-auto" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   {collaborators.map(person => {
                     const personTasks = allFlatTasks.filter(t => t.assignee === person);
-                    const { placedTasks, amHeight, pmHeight, rowHeight } = calculateCollaboratorLanes(personTasks);
+                    const { placedTasks, rowHeight } = calculateCollaboratorLanes(personTasks);
 
                     return (
                       <div key={person} style={{ height: `${rowHeight}px` }} className="flex border-b border-aura-border transition-all relative">
-                        {/* Identité Collaborateur et Labels Lignes Matin / Apr. Midi */}
-                        <div className="w-60 p-3 border-r border-aura-border bg-aura-card flex flex-col justify-between shrink-0">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-xs text-white shadow">
-                              {person.charAt(0)}
-                            </div>
-                            <div>
-                              <div className="text-xs font-bold text-slate-200">{person}</div>
-                              <div className="text-[10px] text-slate-400">{personTasks.length} tâche(s)</div>
-                            </div>
+                        {/* Identité Collaborateur */}
+                        <div className="w-60 p-4 border-r border-aura-border bg-aura-card flex items-center gap-3 shrink-0">
+                          <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-xs text-white shadow">
+                            {person.charAt(0)}
                           </div>
-
-                          <div className="space-y-1 text-[9px] font-mono font-bold text-slate-400 pt-2 border-t border-aura-border/40">
-                            <div style={{ height: `${amHeight}px` }} className="flex items-center text-indigo-300">☀️ Matin</div>
-                            <div style={{ height: `${pmHeight}px` }} className="flex items-center text-purple-300">🌙 Apr. Midi (PM)</div>
+                          <div>
+                            <div className="text-xs font-bold text-slate-200">{person}</div>
+                            <div className="text-[10px] text-slate-400">{personTasks.length} tâche(s) au total</div>
                           </div>
                         </div>
 
-                        {/* Grille de Calendrier et Tâches Glissables */}
+                        {/* Colonnes Matin / PM et Badges de Journée */}
                         <div className="flex-1 relative">
-                          {/* Ligne médiane de séparation AM/PM */}
-                          <div 
-                            className="absolute left-0 right-0 border-t border-dashed border-indigo-500/30 z-0 pointer-events-none" 
-                            style={{ top: `${amHeight + 12}px` }}
-                          />
+                          {/* Grille d'arrière-plan avec séparateur AM/PM et Badges de Tâches par jour */}
+                          <div className="absolute inset-0 flex pointer-events-none z-0">
+                            {Array.from({ length: totalTimelineDays }).map((_, i) => {
+                              const dayDate = addDays(timelineStartDate, i);
+                              const count = getTasksCountForDay(personTasks, dayDate);
 
-                          <div className="absolute inset-0 flex pointer-events-none">
-                            {Array.from({ length: totalTimelineDays }).map((_, i) => (
-                              <div key={i} style={{ width: `${columnWidth}px` }} className="h-full border-r border-aura-border/20 flex">
-                                <div className="w-1/2 border-r border-aura-border/10"></div>
-                                <div className="w-1/2"></div>
-                              </div>
-                            ))}
+                              return (
+                                <div key={i} style={{ width: `${columnWidth}px` }} className="h-full border-r border-aura-border/20 flex relative">
+                                  {count > 0 && (
+                                    <div className="absolute top-1 left-1/2 -translate-x-1/2 bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-[9px] font-bold px-1.5 py-0.2 rounded-full shadow z-20">
+                                      {count} T
+                                    </div>
+                                  )}
+                                  <div className="w-1/2 border-r border-aura-border/10"></div>
+                                  <div className="w-1/2"></div>
+                                </div>
+                              );
+                            })}
                           </div>
 
-                          <div className="relative w-full h-full">
+                          {/* Tâches Empilées et Glissables sans ouverture de modal */}
+                          <div className="relative w-full h-full z-10">
                             {placedTasks.map(task => {
                               const isDraggingThis = planningDragState && planningDragState.taskId === task.id;
                               const displayTaskStart = isDraggingThis ? planningDragState.currentStartDate : task.startDate;
@@ -1366,10 +1367,7 @@
                               const startDays = diffDays(parseDate(displayTaskStart || task.project.startDate), timelineStartDate) + (task.slot === 'PM' ? 0.5 : 0);
                               const leftPx = startDays * columnWidth;
                               const widthPx = task.duration * columnWidth;
-                              
-                              const topPx = task.rowZone === 'AM' 
-                                ? task.laneIndex * 34 + 6 
-                                : amHeight + task.laneIndex * 34 + 14;
+                              const topPx = task.laneIndex * 36 + 8;
 
                               return (
                                 <div
@@ -1380,11 +1378,15 @@
                                     top: `${topPx}px`
                                   }}
                                   onMouseDown={(e) => handlePlanningMouseDown(e, task)}
-                                  onClick={() => setEditingTask(task)}
-                                  className={`absolute h-7 rounded-lg bg-gradient-to-r ${task.project.color} px-2 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-grab active:cursor-grabbing hover:brightness-110 truncate border border-white/20 z-10 transition-shadow select-none ${
+                                  onClick={() => {
+                                    if (!hasDraggedPlanningTask.current) {
+                                      setEditingTask(task);
+                                    }
+                                  }}
+                                  className={`absolute h-7 rounded-lg bg-gradient-to-r ${task.project.color} px-2 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-grab active:cursor-grabbing hover:brightness-110 truncate border border-white/20 select-none transition-shadow ${
                                     isDraggingThis ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-aura-bg z-30' : ''
                                   }`}
-                                  title={`${task.title} (Glisser pour modifier la date)`}
+                                  title={`${task.title} (Glisser pour décaler)`}
                                 >
                                   <span className="truncate flex items-center gap-1 pointer-events-none">
                                     <span>{task.slot === 'PM' ? '🌙' : '☀️'}</span>
@@ -1458,7 +1460,7 @@
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Durée (jours - 0.5j)</label>
+                      <label className="block text-xs text-slate-400 mb-1">Durée (jours - pas 0.5j)</label>
                       <input 
                         type="number" step="0.5" min="0.5"
                         value={editingTask.duration} 
@@ -1482,10 +1484,10 @@
                       <span className="text-xs text-slate-300">Scinder cette tâche dans le Planning</span>
                       <button 
                         type="button"
-                        onClick={() => { setSplittingTask(editingTask); }}
+                        onClick={() => openSplitModal(editingTask)}
                         className="px-3 py-1.5 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border border-indigo-500/30 text-xs font-semibold rounded-lg transition"
                       >
-                        ✂️ Scinder (0,5j / 1j)
+                        ✂️ Scinder Tâche
                       </button>
                     </div>
                   )}
@@ -1502,43 +1504,61 @@
             </div>
           )}
 
-          {/* MODAL DE SCISSION PLANNING EXCLUSIVE (0,5j OU 1j) */}
+          {/* MODAL DE SCISSION ULTRA-FLEXIBLE (EX: 5.5j = 4j + 0.5j + 0.5j) */}
           {splittingTask && (
             <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
               <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
-                <h3 className="text-base font-bold text-slate-100 mb-2">✂️ Scission Planning Exclusive</h3>
+                <h3 className="text-base font-bold text-slate-100 mb-2">✂️ Scission Planning Sur-Mesure</h3>
                 <p className="text-xs text-slate-400 mb-4">Tâche : <strong>{splittingTask.title}</strong> ({splittingTask.duration} jours)</p>
 
-                <form onSubmit={executeMultiSplitTask} className="space-y-4 text-xs">
+                <form onSubmit={executeFlexibleSplit} className="space-y-4 text-xs">
                   <div>
-                    <label className="block text-slate-300 mb-2 font-medium">Choisissez le format de découpage pour le planning :</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button 
-                        type="button"
-                        onClick={() => setSplitMode('half_day')}
-                        className={`p-3 rounded-xl border text-left flex flex-col justify-between ${
-                          splitMode === 'half_day' ? 'border-indigo-500 bg-indigo-500/10 text-white font-bold' : 'border-aura-border bg-aura-bg text-slate-400'
-                        }`}
-                      >
-                        <span className="font-bold">Demi-Journées (0.5j)</span>
-                        <span className="text-[10px] opacity-70 mt-1">Découpe en blocs de 0.5j (Matin/AM)</span>
-                      </button>
-
-                      <button 
-                        type="button"
-                        onClick={() => setSplitMode('daily')}
-                        className={`p-3 rounded-xl border text-left flex flex-col justify-between ${
-                          splitMode === 'daily' ? 'border-indigo-500 bg-indigo-500/10 text-white font-bold' : 'border-aura-border bg-aura-bg text-slate-400'
-                        }`}
-                      >
-                        <span className="font-bold">Journées (1j)</span>
-                        <span className="text-[10px] opacity-70 mt-1">1 jour entier par sous-bloc</span>
-                      </button>
+                    <label className="block text-slate-300 mb-2 font-medium">Configurez les durées des morceaux :</label>
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {splitSegments.map((seg, idx) => (
+                        <div key={idx} className="flex items-center gap-2 bg-aura-bg p-2 rounded-xl border border-aura-border">
+                          <span className="text-[10px] font-bold text-slate-400 w-16">Partie {idx + 1} :</span>
+                          <input 
+                            type="number" step="0.5" min="0.5" max={splittingTask.duration} required
+                            value={seg}
+                            onChange={e => {
+                              const val = Number(e.target.value);
+                              const newSegs = [...splitSegments];
+                              newSegs[idx] = val;
+                              setSplitSegments(newSegs);
+                            }}
+                            className="flex-1 bg-aura-card p-2 rounded border border-aura-border text-slate-200 text-xs font-mono font-bold"
+                          />
+                          <span className="text-[10px] text-slate-400">jour(s)</span>
+                          {splitSegments.length > 2 && (
+                            <button 
+                              type="button" 
+                              onClick={() => setSplitSegments(splitSegments.filter((_, i) => i !== idx))}
+                              className="text-rose-400 font-bold px-2"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
                     </div>
+
+                    <button 
+                      type="button"
+                      onClick={() => setSplitSegments([...splitSegments, 0.5])}
+                      className="mt-2 text-indigo-400 font-semibold hover:underline text-[11px]"
+                    >
+                      + Ajouter un morceau supplémentaire
+                    </button>
                   </div>
 
-                  <div className="p-3 bg-aura-bg rounded-xl border border-aura-border text-[11px] text-slate-400">
-                    💡 <em>Note : Ce découpage crée des blocs ajustables dans le planning des collaborateurs sans affecter l'objectif macro dans la Roadmap.</em>
+                  <div className="p-3 bg-aura-bg rounded-xl border border-aura-border flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Somme des morceaux :</span>
+                    <span className={`font-mono font-bold ${
+                      Math.abs(splitSegments.reduce((a,b) => a+Number(b), 0) - splittingTask.duration) < 0.01 ? 'text-emerald-400' : 'text-rose-400'
+                    }`}>
+                      {splitSegments.reduce((a,b) => a+Number(b), 0)} / {splittingTask.duration} jours
+                    </span>
                   </div>
 
                   <div className="flex justify-end gap-3 pt-4 border-t border-aura-border">
