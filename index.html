@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jira-Style Pro Roadmap & Tasks</title>
+  <title>Jira Enterprise - Roadmap & Kanban</title>
   
-  <!-- Tailwind CSS -->
+  <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -17,8 +17,7 @@
               bg: '#0B0F19',
               card: '#151C2C',
               border: '#232D42',
-              accent: '#3B82F6',
-              purple: '#8B5CF6'
+              accent: '#3B82F6'
             }
           }
         }
@@ -31,33 +30,42 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Yjs + y-webrtc pour Temps Réel WebRTC -->
+  <!-- Yjs + y-webrtc (Collaboration temps réel P2P) -->
   <script src="https://cdn.jsdelivr.net/npm/yjs@13/dist/yjs.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/y-webrtc@10/dist/y-webrtc.js"></script>
 
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
-
   <style>
-    /* Custom Scrollbars */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #0B0F19; }
     ::-webkit-scrollbar-thumb { background: #232D42; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+    ::-webkit-scrollbar-thumb:hover { background: #3B82F6; }
   </style>
 </head>
 <body class="bg-jira-bg text-slate-100 font-sans antialiased min-h-screen overflow-hidden selection:bg-blue-500/30">
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+    const { useState, useEffect, useRef, useMemo } = React;
 
-    // Helpers Utf8 <-> Base64 pour l'API GitHub
+    // --- HELPERS DATES & ENCODAGE ---
     const utf8_to_b64 = (str) => window.btoa(unescape(encodeURIComponent(str)));
     const b64_to_utf8 = (str) => decodeURIComponent(escape(window.atob(str)));
 
-    const TOTAL_DAYS = 30;
-    const COLUMN_WIDTH = 52; // Largeur d'une journée en px
+    const parseDate = (str) => new Date(str + 'T00:00:00');
+    const formatDateIso = (d) => d.toISOString().split('T')[0];
+    const addDays = (d, days) => { const r = new Date(d); r.setDate(r.getDate() + days); return r; };
+    const diffDays = (d1, d2) => Math.round((d1 - d2) / (1000 * 60 * 60 * 24));
+
+    const COLOR_OPTIONS = [
+      { name: 'Bleu Jira', value: 'from-blue-600 to-indigo-600' },
+      { name: 'Violet Cyber', value: 'from-purple-600 to-pink-600' },
+      { name: 'Émeraude Tech', value: 'from-emerald-600 to-teal-600' },
+      { name: 'Ambre Chaud', value: 'from-amber-500 to-orange-600' },
+      { name: 'Rose Néon', value: 'from-rose-600 to-red-600' },
+      { name: 'Cyan Futur', value: 'from-cyan-500 to-blue-500' }
+    ];
+
+    const TODAY_STR = formatDateIso(new Date());
 
     const INITIAL_TASKS = [
       {
@@ -66,70 +74,72 @@
         category: 'Infrastructure',
         status: 'IN_PROGRESS',
         assignee: 'Alexandre M.',
-        startDay: 2,
-        duration: 8,
+        startDate: TODAY_STR,
+        duration: 12,
         color: 'from-blue-600 to-indigo-600',
         subtasks: [
-          { id: '1-1', title: 'Provisionner clusters Terraform', done: true },
-          { id: '1-2', title: 'Configuration Ingress Controller', done: true },
-          { id: '1-3', title: 'Migration microservices auth', done: false }
+          { id: '1-1', title: 'Provisionner clusters Terraform', done: true, assignee: 'Lucas R.', duration: 4 },
+          { id: '1-2', title: 'Configuration Ingress Controller', done: false, assignee: 'Alexandre M.', duration: 5 }
         ]
       },
       {
         id: '2',
-        title: 'Design System & composants Figma',
-        category: 'Frontend / UI',
-        status: 'IN_PROGRESS',
+        title: 'Design System & Composants React',
+        category: 'Frontend',
+        status: 'TODO',
         assignee: 'Sophie T.',
-        startDay: 5,
-        duration: 12,
+        startDate: formatDateIso(addDays(new Date(), 3)),
+        duration: 10,
         color: 'from-purple-600 to-pink-600',
         subtasks: [
-          { id: '2-1', title: 'Création des Tokens de couleur', done: true },
-          { id: '2-2', title: 'Composants de formulaires avancés', done: false }
+          { id: '2-1', title: 'Tokens de couleurs & Figma', done: true, assignee: 'Sophie T.', duration: 3 },
+          { id: '2-2', title: 'Composants Formulaires', done: false, assignee: 'Sophie T.', duration: 8 } // Provoque un warning volontaire (3+8 = 11 > 10)
         ]
       },
       {
         id: '3',
-        title: 'Optimisation Performances API REST',
+        title: 'Optimisation API & Cache Redis',
         category: 'Backend',
-        status: 'TODO',
-        assignee: 'Lucas R.',
-        startDay: 16,
-        duration: 9,
+        status: 'IN_REVIEW',
+        assignee: 'Thomas L.',
+        startDate: formatDateIso(addDays(new Date(), -4)),
+        duration: 8,
         color: 'from-emerald-600 to-teal-600',
         subtasks: [
-          { id: '3-1', title: 'Mise en place de Redis Cache', done: false },
-          { id: '3-2', title: 'Indexation bases PostgreSQL', done: false }
+          { id: '3-1', title: 'Mise en place Redis Cache', done: true, assignee: 'Thomas L.', duration: 3 }
         ]
       }
     ];
 
     function RoadmapApp() {
-      // 1. États Principaux
+      // 1. États Généraux
       const [tasks, setTasks] = useState(() => {
-        const saved = localStorage.getItem('jira_roadmap_tasks');
+        const saved = localStorage.getItem('jira_enterprise_tasks');
         return saved ? JSON.parse(saved) : INITIAL_TASKS;
       });
 
+      const [activeTab, setActiveTab] = useState('roadmap'); // 'roadmap' | 'kanban'
       const [selectedTaskId, setSelectedTaskId] = useState('1');
+      const [columnWidth, setColumnWidth] = useState(48); // Pixel width par jour (Zoom)
       const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-      const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
 
-      // Formulaire nouvelle tâche
+      // États formulaire Sous-tâche dans le panneau
+      const [newSubtask, setNewSubtask] = useState({ title: '', assignee: '', duration: 2 });
+
+      // États Formulaire Nouvelle Tâche
       const [newTaskForm, setNewTaskForm] = useState({
         title: '',
         category: 'Tech',
         status: 'TODO',
-        assignee: 'Non assigné',
-        startDay: 1,
-        duration: 5,
+        assignee: 'Alexandre M.',
+        startDate: TODAY_STR,
+        duration: 7,
         color: 'from-blue-600 to-indigo-600'
       });
 
-      // États pour le Drag & Resize de précision
-      const [dragState, setDragState] = useState(null); // { taskId, action: 'move'|'resize-left'|'resize-right', startX, initialStartDay, initialDuration }
-      const [dragPreview, setDragPreview] = useState(null); // Feedback visuel temps réel
+      // Drag / Resize
+      const [dragState, setDragState] = useState(null);
+      const [dragPreview, setDragPreview] = useState(null);
 
       // Configuration GitHub API & WebRTC
       const [ghConfig, setGhConfig] = useState(() => {
@@ -140,59 +150,57 @@
       const [connectedPeers, setConnectedPeers] = useState(1);
       const yDocRef = useRef(null);
 
-      // Persistance locale
-      useEffect(() => {
-        localStorage.setItem('jira_roadmap_tasks', JSON.stringify(tasks));
+      // Calcul de la plage de dates globale de la timeline
+      const timelineStartDate = useMemo(() => {
+        if (tasks.length === 0) return new Date();
+        const dates = tasks.map(t => parseDate(t.startDate).getTime());
+        const minDate = new Date(Math.min(...dates, new Date().getTime()));
+        return addDays(minDate, -5); // Marge de 5 jours avant
       }, [tasks]);
 
-      useEffect(() => {
-        localStorage.setItem('gh_config', JSON.stringify(ghConfig));
-      }, [ghConfig]);
+      const TOTAL_TIMELINE_DAYS = 45;
 
-      // --- INITIALISATION WEBRTC P2P (YJS) ---
+      // Persistance
+      useEffect(() => localStorage.setItem('jira_enterprise_tasks', JSON.stringify(tasks)), [tasks]);
+      useEffect(() => localStorage.setItem('gh_config', JSON.stringify(ghConfig)), [ghConfig]);
+
+      // WebRTC P2P Yjs Sync
       useEffect(() => {
         if (!window.Y || !window.YWebrtc) return;
-        const WebrtcProvider = window.YWebrtc.WebrtcProvider;
         const ydoc = new window.Y.Doc();
-
-        const provider = new WebrtcProvider('jira-premium-roadmap-room', ydoc, {
-          signaling: [
-            'wss://signaling.yjs.dev',
-            'wss://y-webrtc-signaling-eu.herokuapp.com'
-          ]
-        });
-
+        const provider = new window.YWebrtc.WebrtcProvider('jira-enterprise-room-2026', ydoc);
         const yTasks = ydoc.getArray('tasks');
 
         yTasks.observe(() => {
-          const remoteTasks = yTasks.toArray();
-          if (remoteTasks.length > 0) setTasks(remoteTasks);
+          const remote = yTasks.toArray();
+          if (remote.length > 0) setTasks(remote);
         });
 
-        provider.on('peers', (e) => {
-          setConnectedPeers(e.webrtcPeers.length + 1);
-        });
-
+        provider.on('peers', (e) => setConnectedPeers(e.webrtcPeers.length + 1));
         yDocRef.current = { ydoc, yTasks, provider };
 
-        return () => {
-          provider.destroy();
-          ydoc.destroy();
-        };
+        return () => { provider.destroy(); ydoc.destroy(); };
       }, []);
 
-      const broadcastTasks = (newTasks) => {
-        setTasks(newTasks);
+      const broadcastTasks = (updated) => {
+        setTasks(updated);
         if (yDocRef.current && yDocRef.current.yTasks) {
           const { ydoc, yTasks } = yDocRef.current;
           ydoc.transact(() => {
             yTasks.delete(0, yTasks.length);
-            yTasks.insert(0, newTasks);
+            yTasks.insert(0, updated);
           });
         }
       };
 
-      // --- DRAG & DROP + RESIZE ENGINE ---
+      // --- LOGIQUE DE WARNING DEPASSEMENT SOUS-TACHES ---
+      const checkSubtaskOverflow = (task) => {
+        if (!task.subtasks || task.subtasks.length === 0) return false;
+        const totalSubDuration = task.subtasks.reduce((sum, st) => sum + Number(st.duration || 0), 0);
+        return totalSubDuration > task.duration;
+      };
+
+      // --- DRAG & DROP / RESIZE ENGINE ---
       const handleMouseDown = (e, taskId, action) => {
         e.stopPropagation();
         e.preventDefault();
@@ -203,44 +211,38 @@
           taskId,
           action,
           startX: e.clientX,
-          initialStartDay: task.startDay,
+          initialStartDate: task.startDate,
           initialDuration: task.duration
         });
 
-        setDragPreview({
-          taskId,
-          startDay: task.startDay,
-          duration: task.duration
-        });
+        setDragPreview({ taskId, startDate: task.startDate, duration: task.duration });
       };
 
       useEffect(() => {
         const handleMouseMove = (e) => {
           if (!dragState) return;
-
           const deltaX = e.clientX - dragState.startX;
-          const dayDelta = Math.round(deltaX / COLUMN_WIDTH);
+          const dayDelta = Math.round(deltaX / columnWidth);
 
-          let newStartDay = dragState.initialStartDay;
+          let newStartDate = dragState.initialStartDate;
           let newDuration = dragState.initialDuration;
 
           if (dragState.action === 'move') {
-            newStartDay = Math.max(1, Math.min(TOTAL_DAYS - newDuration + 1, dragState.initialStartDay + dayDelta));
+            newStartDate = formatDateIso(addDays(parseDate(dragState.initialStartDate), dayDelta));
           } else if (dragState.action === 'resize-left') {
-            const maxDelta = dragState.initialDuration - 1;
-            const actualDelta = Math.min(dayDelta, maxDelta);
-            newStartDay = Math.max(1, dragState.initialStartDay + actualDelta);
-            newDuration = dragState.initialDuration - (newStartDay - dragState.initialStartDay);
+            const actualDays = Math.min(dayDelta, dragState.initialDuration - 1);
+            newStartDate = formatDateIso(addDays(parseDate(dragState.initialStartDate), actualDays));
+            newDuration = dragState.initialDuration - actualDays;
           } else if (dragState.action === 'resize-right') {
-            newDuration = Math.max(1, Math.min(TOTAL_DAYS - dragState.initialStartDay + 1, dragState.initialDuration + dayDelta));
+            newDuration = Math.max(1, dragState.initialDuration + dayDelta);
           }
 
-          setDragPreview({ taskId: dragState.taskId, startDay: newStartDay, duration: newDuration });
+          setDragPreview({ taskId: dragState.taskId, startDate: newStartDate, duration: newDuration });
         };
 
         const handleMouseUp = () => {
           if (dragState && dragPreview) {
-            const updated = tasks.map(t => t.id === dragState.taskId ? { ...t, startDay: dragPreview.startDay, duration: dragPreview.duration } : t);
+            const updated = tasks.map(t => t.id === dragState.taskId ? { ...t, startDate: dragPreview.startDate, duration: dragPreview.duration } : t);
             broadcastTasks(updated);
           }
           setDragState(null);
@@ -251,14 +253,13 @@
           window.addEventListener('mousemove', handleMouseMove);
           window.addEventListener('mouseup', handleMouseUp);
         }
-
         return () => {
           window.removeEventListener('mousemove', handleMouseMove);
           window.removeEventListener('mouseup', handleMouseUp);
         };
-      }, [dragState, dragPreview, tasks]);
+      }, [dragState, dragPreview, columnWidth, tasks]);
 
-      // --- AJOUT DE TÂCHE & SOUS-TÂCHE ---
+      // --- AJOUT DE TÂCHES / SOUS-TÂCHES ---
       const handleCreateTask = (e) => {
         e.preventDefault();
         if (!newTaskForm.title.trim()) return;
@@ -266,29 +267,18 @@
         const newTask = {
           id: Date.now().toString(),
           ...newTaskForm,
-          startDay: Number(newTaskForm.startDay),
           duration: Number(newTaskForm.duration),
           subtasks: []
         };
 
-        const updated = [...tasks, newTask];
-        broadcastTasks(updated);
+        broadcastTasks([...tasks, newTask]);
         setSelectedTaskId(newTask.id);
         setIsCreateModalOpen(false);
-        setNewTaskForm({
-          title: '',
-          category: 'Tech',
-          status: 'TODO',
-          assignee: 'Non assigné',
-          startDay: 1,
-          duration: 5,
-          color: 'from-blue-600 to-indigo-600'
-        });
       };
 
       const handleAddSubtask = (e) => {
         e.preventDefault();
-        if (!newSubtaskTitle.trim() || !selectedTaskId) return;
+        if (!newSubtask.title.trim() || !selectedTaskId) return;
 
         const updated = tasks.map(t => {
           if (t.id !== selectedTaskId) return t;
@@ -296,13 +286,19 @@
             ...t,
             subtasks: [
               ...t.subtasks,
-              { id: `${t.id}-${Date.now()}`, title: newSubtaskTitle.trim(), done: false }
+              {
+                id: `${t.id}-${Date.now()}`,
+                title: newSubtask.title.trim(),
+                assignee: newSubtask.assignee || t.assignee,
+                duration: Number(newSubtask.duration) || 1,
+                done: false
+              }
             ]
           };
         });
 
         broadcastTasks(updated);
-        setNewSubtaskTitle('');
+        setNewSubtask({ title: '', assignee: '', duration: 2 });
       };
 
       const toggleSubtask = (taskId, subtaskId) => {
@@ -316,72 +312,54 @@
         broadcastTasks(updated);
       };
 
+      const updateTaskStatus = (taskId, newStatus) => {
+        const updated = tasks.map(t => t.id === taskId ? { ...t, status: newStatus } : t);
+        broadcastTasks(updated);
+      };
+
       const deleteTask = (taskId) => {
-        if (confirm("Supprimer cette tâche et toutes ses sous-tâches ?")) {
+        if (confirm("Supprimer cette tâche ?")) {
           const updated = tasks.filter(t => t.id !== taskId);
           broadcastTasks(updated);
           if (selectedTaskId === taskId) setSelectedTaskId(updated[0]?.id || null);
         }
       };
 
-      // --- SYNC GITHUB REST API ---
-      const saveToGitHub = async () => {
-        if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) {
-          alert("Veuillez remplir les informations de configuration GitHub.");
-          return;
-        }
-        setSyncStatus('Sauvegarde en cours...');
-        try {
-          const url = `https://api.github.com/repos/${ghConfig.owner}/${ghConfig.repo}/contents/${ghConfig.path}`;
-          const headers = {
-            'Authorization': `token ${ghConfig.token}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json'
-          };
-
-          let currentSha = null;
-          const getRes = await fetch(url, { headers });
-          if (getRes.ok) {
-            const data = await getRes.json();
-            currentSha = data.sha;
-          }
-
-          const body = {
-            message: `Update roadmap: ${new Date().toLocaleString('fr-FR')}`,
-            content: utf8_to_b64(JSON.stringify(tasks, null, 2)),
-            ...(currentSha && { sha: currentSha })
-          };
-
-          const putRes = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(body) });
-          if (!putRes.ok) throw new Error(`Erreur HTTP: ${putRes.status}`);
-
-          setSyncStatus('✅ Synchronisé sur GitHub');
-          setTimeout(() => setSyncStatus(''), 3000);
-        } catch (err) {
-          console.error(err);
-          setSyncStatus('❌ Erreur de sauvegarde');
-        }
+      // Fit All (Vue d'ensemble)
+      const fitAllTasks = () => {
+        const container = document.getElementById('gantt-container');
+        if (!container) return;
+        const newWidth = Math.max(20, Math.floor(container.clientWidth / TOTAL_TIMELINE_DAYS));
+        setColumnWidth(newWidth);
       };
 
-      const loadFromGitHub = async () => {
-        if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) {
-          alert("Veuillez saisir votre Token GitHub.");
-          return;
-        }
-        setSyncStatus('Chargement...');
+      // GitHub REST API Commit
+      const saveToGitHub = async () => {
+        if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) return alert("Remplissez Owner, Repo et Token");
+        setSyncStatus('Commit...');
         try {
-          const res = await fetch(`https://api.github.com/repos/${ghConfig.owner}/${ghConfig.repo}/contents/${ghConfig.path}`, {
-            headers: { 'Authorization': `token ${ghConfig.token}` }
+          const url = `https://api.github.com/repos/${ghConfig.owner}/${ghConfig.repo}/contents/${ghConfig.path}`;
+          const headers = { 'Authorization': `token ${ghConfig.token}`, 'Accept': 'application/vnd.github.v3+json' };
+          
+          let currentSha = null;
+          const getRes = await fetch(url, { headers });
+          if (getRes.ok) currentSha = (await getRes.json()).sha;
+
+          const putRes = await fetch(url, {
+            method: 'PUT',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: `Update Roadmap ${new Date().toLocaleString('fr-FR')}`,
+              content: utf8_to_b64(JSON.stringify(tasks, null, 2)),
+              ...(currentSha && { sha: currentSha })
+            })
           });
-          if (!res.ok) throw new Error("Fichier introuvable");
-          const data = await res.json();
-          const loadedTasks = JSON.parse(b64_to_utf8(data.content));
-          broadcastTasks(loadedTasks);
-          setSyncStatus('✅ Données chargées');
-          setTimeout(() => setSyncStatus(''), 3000);
-        } catch (err) {
-          console.error(err);
-          setSyncStatus('❌ Échec de chargement');
+
+          if (!putRes.ok) throw new Error();
+          setSyncStatus('✅ Commité');
+          setTimeout(() => setSyncStatus(''), 2500);
+        } catch {
+          setSyncStatus('❌ Erreur');
         }
       };
 
@@ -389,227 +367,283 @@
 
       return (
         <div className="flex flex-col h-screen overflow-hidden">
-          {/* Top Bar / Header Jira Style */}
+          {/* Top Header Jira */}
           <header className="bg-jira-card border-b border-jira-border px-6 py-3 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-4">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-black text-white text-lg tracking-wider">
-                J
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-black text-white text-lg">J</div>
+                <h1 className="text-base font-bold text-slate-100">Jira Enterprise</h1>
               </div>
-              <div>
-                <h1 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                  Projets & Roadmap Produit
-                  <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                    Jira Premium Edition
-                  </span>
-                </h1>
-                <p className="text-xs text-slate-400">Vue Gantt temps réel & suivi des sous-tâches</p>
+
+              {/* Navigation Onglets (Roadmap vs Kanban) */}
+              <div className="flex bg-jira-bg p-1 rounded-xl border border-jira-border text-xs font-semibold">
+                <button 
+                  onClick={() => setActiveTab('roadmap')}
+                  className={`px-4 py-1.5 rounded-lg transition ${activeTab === 'roadmap' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  📊 Roadmap Gantt
+                </button>
+                <button 
+                  onClick={() => setActiveTab('kanban')}
+                  className={`px-4 py-1.5 rounded-lg transition ${activeTab === 'kanban' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  📋 Tableau Kanban
+                </button>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              {/* Badge WebRTC Status */}
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-jira-border text-xs text-emerald-400">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-jira-bg border border-jira-border text-xs text-emerald-400">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>{connectedPeers} utilisateur(s) P2P</span>
+                <span>{connectedPeers} P2P</span>
               </div>
 
-              {/* Action Principal : Nouvelle Tâche */}
               <button 
                 onClick={() => setIsCreateModalOpen(true)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition shadow-lg shadow-blue-600/20 flex items-center gap-2"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition shadow-lg shadow-blue-600/20"
               >
-                <span className="text-base leading-none">+</span> Créer Tâche
+                + Créer Tâche
               </button>
             </div>
           </header>
 
-          {/* Configuration GitHub Toolbar */}
-          <div className="bg-slate-900/80 border-b border-jira-border px-6 py-2 flex items-center justify-between text-xs text-slate-400 shrink-0">
+          {/* Controls Bar : GitHub Config + Zoom */}
+          <div className="bg-slate-900/90 border-b border-jira-border px-6 py-2 flex items-center justify-between text-xs text-slate-400 shrink-0">
             <div className="flex items-center gap-3">
-              <span className="font-semibold text-slate-300">GitHub Sync:</span>
-              <input 
-                type="text" placeholder="Owner" value={ghConfig.owner} 
-                onChange={e => setGhConfig({...ghConfig, owner: e.target.value})}
-                className="bg-jira-bg px-2.5 py-1 rounded border border-jira-border w-24 text-slate-200 focus:outline-none focus:border-blue-500"
-              />
-              <input 
-                type="text" placeholder="Repo" value={ghConfig.repo} 
-                onChange={e => setGhConfig({...ghConfig, repo: e.target.value})}
-                className="bg-jira-bg px-2.5 py-1 rounded border border-jira-border w-28 text-slate-200 focus:outline-none focus:border-blue-500"
-              />
-              <input 
-                type="password" placeholder="GitHub Token (PAT)" value={ghConfig.token} 
-                onChange={e => setGhConfig({...ghConfig, token: e.target.value})}
-                className="bg-jira-bg px-2.5 py-1 rounded border border-jira-border w-36 text-slate-200 focus:outline-none focus:border-blue-500"
-              />
-              <button onClick={loadFromGitHub} className="px-2.5 py-1 bg-jira-card hover:bg-slate-800 text-slate-200 rounded border border-jira-border transition">
-                Charger
-              </button>
-              <button onClick={saveToGitHub} className="px-2.5 py-1 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/40 rounded transition font-medium">
+              <span className="font-semibold text-slate-300">GitHub API:</span>
+              <input type="text" placeholder="Owner" value={ghConfig.owner} onChange={e => setGhConfig({...ghConfig, owner: e.target.value})} className="bg-jira-bg px-2 py-1 rounded border border-jira-border w-20 text-slate-200" />
+              <input type="text" placeholder="Repo" value={ghConfig.repo} onChange={e => setGhConfig({...ghConfig, repo: e.target.value})} className="bg-jira-bg px-2 py-1 rounded border border-jira-border w-24 text-slate-200" />
+              <input type="password" placeholder="Token PAT" value={ghConfig.token} onChange={e => setGhConfig({...ghConfig, token: e.target.value})} className="bg-jira-bg px-2 py-1 rounded border border-jira-border w-32 text-slate-200" />
+              <button onClick={saveToGitHub} className="px-3 py-1 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/40 rounded transition font-medium">
                 Commiter data.json
               </button>
+              {syncStatus && <span className="font-medium text-blue-400">{syncStatus}</span>}
             </div>
-            {syncStatus && <span className="font-medium">{syncStatus}</span>}
+
+            {/* Zoom Controls (Uniquement en mode Roadmap) */}
+            {activeTab === 'roadmap' && (
+              <div className="flex items-center gap-3">
+                <span>Zoom:</span>
+                <input 
+                  type="range" min="24" max="90" value={columnWidth} 
+                  onChange={e => setColumnWidth(Number(e.target.value))}
+                  className="w-28 accent-blue-500 cursor-pointer"
+                />
+                <button 
+                  onClick={fitAllTasks}
+                  className="px-2.5 py-1 bg-jira-card hover:bg-slate-800 rounded border border-jira-border text-slate-300 transition"
+                >
+                  Vue d'ensemble
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Core Body : Split Screen (Left Tasks Hierarchy / Right Timeline Gantt Grid) */}
+          {/* MAIN CONTENT AREA */}
           <div className="flex-1 flex overflow-hidden">
-            
-            {/* Left Sidebar : Task Hierarchy List */}
-            <div className="w-80 border-r border-jira-border bg-jira-card flex flex-col shrink-0">
-              <div className="h-12 border-b border-jira-border px-4 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
-                <span>Tâches ({tasks.length})</span>
-                <span>Sous-tâches</span>
-              </div>
 
-              <div className="flex-1 overflow-y-auto divide-y divide-jira-border/50">
-                {tasks.map(task => {
-                  const completedSubs = task.subtasks.filter(s => s.done).length;
-                  const totalSubs = task.subtasks.length;
-                  const isSelected = task.id === selectedTaskId;
+            {/* VUE 1 : ROADMAP GANTT */}
+            {activeTab === 'roadmap' && (
+              <>
+                {/* Left Task Hierarchy */}
+                <div className="w-80 border-r border-jira-border bg-jira-card flex flex-col shrink-0">
+                  <div className="h-12 border-b border-jira-border px-4 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
+                    <span>Tâches ({tasks.length})</span>
+                    <span>Statut / Warning</span>
+                  </div>
 
-                  return (
-                    <div 
-                      key={task.id} 
-                      onClick={() => setSelectedTaskId(task.id)}
-                      className={`h-16 px-4 flex items-center justify-between cursor-pointer transition-colors ${
-                        isSelected ? 'bg-blue-600/10 border-l-4 border-blue-500' : 'hover:bg-slate-800/40'
-                      }`}
-                    >
-                      <div className="truncate pr-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full bg-gradient-to-r ${task.color}`}></span>
-                          <span className="text-xs font-semibold text-slate-200 truncate">{task.title}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
-                          <span>{task.category}</span>
-                          <span>•</span>
-                          <span className="text-slate-500">{task.assignee}</span>
-                        </div>
-                      </div>
+                  <div className="flex-1 overflow-y-auto divide-y divide-jira-border/50">
+                    {tasks.map(task => {
+                      const hasOverflow = checkSubtaskOverflow(task);
+                      const isSelected = task.id === selectedTaskId;
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                          totalSubs > 0 && completedSubs === totalSubs 
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                            : 'bg-slate-800 text-slate-400'
-                        }`}>
-                          {completedSubs}/{totalSubs}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Right Main Panel : Jira Interactive Gantt Timeline */}
-            <div className="flex-1 flex flex-col overflow-x-auto bg-jira-bg relative">
-              
-              {/* Timeline Day/Week Header */}
-              <div className="h-12 border-b border-jira-border flex items-center shrink-0 bg-slate-900/60 sticky top-0 z-10" style={{ width: `${TOTAL_DAYS * COLUMN_WIDTH}px` }}>
-                {Array.from({ length: TOTAL_DAYS }).map((_, i) => {
-                  const dayNum = i + 1;
-                  const isWeekend = dayNum % 7 === 6 || dayNum % 7 === 0;
-                  const isToday = dayNum === 8; // Simulé aujourd'hui à J8
-
-                  return (
-                    <div 
-                      key={i} 
-                      style={{ width: `${COLUMN_WIDTH}px` }}
-                      className={`h-full border-r border-jira-border/60 flex flex-col justify-center items-center text-[10px] ${
-                        isToday ? 'bg-blue-500/10 text-blue-400 font-bold border-b-2 border-blue-500' : isWeekend ? 'bg-slate-950/40 text-slate-600' : 'text-slate-400'
-                      }`}
-                    >
-                      <span className="uppercase text-[9px] text-slate-500">J{dayNum}</span>
-                      <span>{isToday ? 'Auj.' : `Août ${dayNum}`}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Gantt Rows & Draggable Bars */}
-              <div className="flex-1 relative" style={{ width: `${TOTAL_DAYS * COLUMN_WIDTH}px` }}>
-                
-                {/* Visual Background Grid Lines */}
-                <div className="absolute inset-0 flex pointer-events-none">
-                  {Array.from({ length: TOTAL_DAYS }).map((_, i) => {
-                    const isWeekend = (i + 1) % 7 === 6 || (i + 1) % 7 === 0;
-                    return (
-                      <div 
-                        key={i} 
-                        style={{ width: `${COLUMN_WIDTH}px` }} 
-                        className={`h-full border-r border-jira-border/30 ${isWeekend ? 'bg-slate-950/20' : ''}`}
-                      />
-                    );
-                  })}
-                </div>
-
-                {/* Task Bars List */}
-                <div className="relative">
-                  {tasks.map(task => {
-                    const isSelected = task.id === selectedTaskId;
-                    const isDraggingThis = dragState && dragState.taskId === task.id;
-
-                    const displayStartDay = isDraggingThis ? dragPreview.startDay : task.startDay;
-                    const displayDuration = isDraggingThis ? dragPreview.duration : task.duration;
-
-                    const completedSubs = task.subtasks.filter(s => s.done).length;
-                    const totalSubs = task.subtasks.length;
-                    const pct = totalSubs ? Math.round((completedSubs / totalSubs) * 100) : 0;
-
-                    return (
-                      <div key={task.id} className="h-16 border-b border-jira-border/40 relative flex items-center px-1">
-                        
-                        {/* Interactive Task Block */}
-                        <div
-                          style={{
-                            left: `${(displayStartDay - 1) * COLUMN_WIDTH}px`,
-                            width: `${displayDuration * COLUMN_WIDTH}px`
-                          }}
-                          onMouseDown={(e) => handleMouseDown(e, task.id, 'move')}
+                      return (
+                        <div 
+                          key={task.id}
                           onClick={() => setSelectedTaskId(task.id)}
-                          className={`absolute h-10 rounded-lg bg-gradient-to-r ${task.color} shadow-lg cursor-grab active:cursor-grabbing flex items-center justify-between group border border-white/20 transition-shadow select-none ${
-                            isSelected ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-jira-bg' : 'hover:brightness-110'
+                          className={`h-16 px-4 flex items-center justify-between cursor-pointer transition-colors ${
+                            isSelected ? 'bg-blue-600/10 border-l-4 border-blue-500' : 'hover:bg-slate-800/40'
                           }`}
                         >
-                          {/* Left Resize Handle */}
-                          <div 
-                            onMouseDown={(e) => handleMouseDown(e, task.id, 'resize-left')}
-                            className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize bg-white/20 opacity-0 group-hover:opacity-100 rounded-l-lg hover:bg-white/60 transition"
-                            title="Étirer / Rétrécir le début"
-                          />
-
-                          {/* Content Label */}
-                          <div className="truncate px-3 pointer-events-none flex items-center justify-between w-full">
-                            <span className="text-xs font-bold text-white truncate">{task.title}</span>
-                            <span className="text-[10px] text-white/90 font-mono ml-2 bg-black/20 px-1.5 py-0.5 rounded">
-                              {pct}%
-                            </span>
+                          <div className="truncate pr-2">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-2 h-2 rounded-full bg-gradient-to-r ${task.color}`}></span>
+                              <span className="text-xs font-semibold text-slate-200 truncate">{task.title}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
+                              <span>{task.startDate}</span>
+                              <span>•</span>
+                              <span>{task.duration}j</span>
+                            </div>
                           </div>
 
-                          {/* Right Resize Handle */}
-                          <div 
-                            onMouseDown={(e) => handleMouseDown(e, task.id, 'resize-right')}
-                            className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize bg-white/20 opacity-0 group-hover:opacity-100 rounded-r-lg hover:bg-white/60 transition"
-                            title="Étirer / Rétrécir la fin"
-                          />
-
-                          {/* Live Dragging Precision Tooltip */}
-                          {isDraggingThis && (
-                            <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-slate-900 text-slate-100 border border-blue-500 text-[10px] font-mono px-2.5 py-1 rounded-md shadow-xl whitespace-nowrap z-30">
-                              J{displayStartDay} → J{displayStartDay + displayDuration - 1} ({displayDuration} jours)
-                            </div>
+                          {hasOverflow && (
+                            <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold animate-pulse" title="Les sous-tâches dépassent la durée globale">
+                              ⚠️ Dépassement
+                            </span>
                           )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Right Interactive Gantt */}
+                <div id="gantt-container" className="flex-1 flex flex-col overflow-x-auto bg-jira-bg relative">
+                  
+                  {/* Calendar Days Header */}
+                  <div className="h-12 border-b border-jira-border flex items-center shrink-0 bg-slate-900/60 sticky top-0 z-10" style={{ width: `${TOTAL_TIMELINE_DAYS * columnWidth}px` }}>
+                    {Array.from({ length: TOTAL_TIMELINE_DAYS }).map((_, i) => {
+                      const dayDate = addDays(timelineStartDate, i);
+                      const dayStr = formatDateIso(dayDate);
+                      const isToday = dayStr === TODAY_STR;
+                      const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
+
+                      return (
+                        <div 
+                          key={i}
+                          style={{ width: `${columnWidth}px` }}
+                          className={`h-full border-r border-jira-border/60 flex flex-col justify-center items-center text-[10px] ${
+                            isToday ? 'bg-blue-500/10 text-blue-400 font-bold border-b-2 border-blue-500' : isWeekend ? 'bg-slate-950/40 text-slate-600' : 'text-slate-400'
+                          }`}
+                        >
+                          <span className="uppercase text-[9px] text-slate-500">
+                            {dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}
+                          </span>
+                          <span>{dayDate.getDate()}/{dayDate.getMonth() + 1}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Gantt Bars & Grid */}
+                  <div className="flex-1 relative" style={{ width: `${TOTAL_TIMELINE_DAYS * columnWidth}px` }}>
+                    {/* Background Day Columns */}
+                    <div className="absolute inset-0 flex pointer-events-none">
+                      {Array.from({ length: TOTAL_TIMELINE_DAYS }).map((_, i) => (
+                        <div key={i} style={{ width: `${columnWidth}px` }} className="h-full border-r border-jira-border/20" />
+                      ))}
+                    </div>
+
+                    {/* Task Rows */}
+                    <div className="relative">
+                      {tasks.map(task => {
+                        const isDraggingThis = dragState && dragState.taskId === task.id;
+                        const displayStartDate = isDraggingThis ? dragPreview.startDate : task.startDate;
+                        const displayDuration = isDraggingThis ? dragPreview.duration : task.duration;
+
+                        const offsetDays = diffDays(parseDate(displayStartDate), timelineStartDate);
+                        const isSelected = task.id === selectedTaskId;
+                        const endDateStr = formatDateIso(addDays(parseDate(displayStartDate), displayDuration - 1));
+
+                        return (
+                          <div key={task.id} className="h-16 border-b border-jira-border/40 relative flex items-center">
+                            
+                            <div
+                              style={{
+                                left: `${offsetDays * columnWidth}px`,
+                                width: `${displayDuration * columnWidth}px`
+                              }}
+                              onMouseDown={(e) => handleMouseDown(e, task.id, 'move')}
+                              onClick={() => setSelectedTaskId(task.id)}
+                              className={`absolute h-10 rounded-lg bg-gradient-to-r ${task.color} shadow-lg cursor-grab active:cursor-grabbing flex items-center justify-between group border border-white/20 select-none ${
+                                isSelected ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-jira-bg' : ''
+                              }`}
+                            >
+                              <div onMouseDown={(e) => handleMouseDown(e, task.id, 'resize-left')} className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/20 opacity-0 group-hover:opacity-100 rounded-l-lg hover:bg-white/50" />
+                              
+                              <div className="truncate px-3 pointer-events-none flex items-center justify-between w-full">
+                                <span className="text-xs font-bold text-white truncate">{task.title}</span>
+                                <span className="text-[10px] text-white/90 font-mono ml-2 bg-black/30 px-1.5 py-0.5 rounded">
+                                  {displayDuration}j
+                                </span>
+                              </div>
+
+                              <div onMouseDown={(e) => handleMouseDown(e, task.id, 'resize-right')} className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/20 opacity-0 group-hover:opacity-100 rounded-r-lg hover:bg-white/50" />
+
+                              {/* Tooltip dynamique en direct */}
+                              {isDraggingThis && (
+                                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 border border-blue-500 text-slate-100 text-[10px] font-mono px-3 py-1 rounded-lg shadow-2xl z-30 whitespace-nowrap">
+                                  📅 {displayStartDate} → {endDateStr} ({displayDuration} jours)
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* VUE 2 : TABLEAU KANBAN */}
+            {activeTab === 'kanban' && (
+              <div className="flex-1 p-6 bg-jira-bg overflow-x-auto">
+                <div className="grid grid-cols-4 gap-6 min-w-[1000px] h-full">
+                  {[
+                    { id: 'TODO', title: 'À faire', color: 'border-slate-600' },
+                    { id: 'IN_PROGRESS', title: 'En cours', color: 'border-blue-500' },
+                    { id: 'IN_REVIEW', title: 'En revue', color: 'border-purple-500' },
+                    { id: 'DONE', title: 'Terminé', color: 'border-emerald-500' }
+                  ].map(col => {
+                    const colTasks = tasks.filter(t => t.status === col.id);
+
+                    return (
+                      <div key={col.id} className="bg-jira-card border border-jira-border rounded-2xl p-4 flex flex-col h-full">
+                        <div className={`flex items-center justify-between border-b-2 ${col.color} pb-3 mb-4`}>
+                          <h3 className="font-bold text-sm text-slate-200">{col.title}</h3>
+                          <span className="text-xs font-mono bg-jira-bg border border-jira-border px-2 py-0.5 rounded-full text-slate-400">
+                            {colTasks.length}
+                          </span>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                          {colTasks.map(task => {
+                            const hasOverflow = checkSubtaskOverflow(task);
+
+                            return (
+                              <div 
+                                key={task.id}
+                                className="bg-jira-bg border border-jira-border/80 hover:border-slate-600 p-4 rounded-xl shadow-lg transition flex flex-col justify-between gap-3"
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                      {task.category}
+                                    </span>
+                                    {hasOverflow && <span className="text-[10px] text-rose-400 font-bold">⚠️ Warning</span>}
+                                  </div>
+                                  <h4 className="text-xs font-bold text-slate-100 mb-1">{task.title}</h4>
+                                  <p className="text-[10px] text-slate-400">📅 {task.startDate} ({task.duration}j)</p>
+                                </div>
+
+                                <div className="flex items-center justify-between pt-2 border-t border-jira-border/50 text-[10px] text-slate-400">
+                                  <span>👤 {task.assignee}</span>
+                                  {/* Select de changement de statut rapide */}
+                                  <select 
+                                    value={task.status}
+                                    onChange={e => updateTaskStatus(task.id, e.target.value)}
+                                    className="bg-jira-card border border-jira-border text-[10px] rounded px-1.5 py-0.5 text-slate-200"
+                                  >
+                                    <option value="TODO">À faire</option>
+                                    <option value="IN_PROGRESS">En cours</option>
+                                    <option value="IN_REVIEW">En revue</option>
+                                    <option value="DONE">Terminé</option>
+                                  </select>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Right Drawer Panel : Task Inspector & Subtasks Creator */}
+            {/* PANNEAU INSPECTEUR ET GESTION DES SOUS-TÂCHES (À Droite) */}
             {selectedTask && (
               <div className="w-80 border-l border-jira-border bg-jira-card p-5 flex flex-col justify-between shrink-0 overflow-y-auto">
                 <div>
@@ -617,72 +651,112 @@
                     <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
                       {selectedTask.category}
                     </span>
-                    <button 
-                      onClick={() => deleteTask(selectedTask.id)}
-                      className="text-xs text-rose-400 hover:text-rose-300 transition"
-                      title="Supprimer la tâche"
-                    >
+                    <button onClick={() => deleteTask(selectedTask.id)} className="text-xs text-rose-400 hover:text-rose-300">
                       Supprimer
                     </button>
                   </div>
 
-                  <h2 className="text-base font-bold text-slate-100 mb-2">{selectedTask.title}</h2>
-                  
-                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-400 bg-jira-bg p-3 rounded-xl border border-jira-border mb-6">
-                    <div>
-                      <span className="block text-[10px] text-slate-500 uppercase">Début</span>
-                      <span className="font-semibold text-slate-200">Jour {selectedTask.startDay}</span>
+                  <h2 className="text-sm font-bold text-slate-100 mb-4">{selectedTask.title}</h2>
+
+                  {/* Warning Box si dépassement */}
+                  {checkSubtaskOverflow(selectedTask) && (
+                    <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+                      ⚠️ <strong>Attention :</strong> La somme des durées des sous-tâches ({selectedTask.subtasks.reduce((s, st) => s + Number(st.duration || 0), 0)}j) dépasse la durée totale de la tâche ({selectedTask.duration}j).
                     </div>
+                  )}
+
+                  {/* Édition rapide dates & couleur */}
+                  <div className="space-y-3 bg-jira-bg p-3 rounded-xl border border-jira-border mb-6 text-xs">
                     <div>
-                      <span className="block text-[10px] text-slate-500 uppercase">Durée</span>
-                      <span className="font-semibold text-slate-200">{selectedTask.duration} jours</span>
+                      <label className="block text-[10px] text-slate-400 uppercase mb-1">Date de début</label>
+                      <input 
+                        type="date" 
+                        value={selectedTask.startDate}
+                        onChange={e => {
+                          const updated = tasks.map(t => t.id === selectedTask.id ? { ...t, startDate: e.target.value } : t);
+                          broadcastTasks(updated);
+                        }}
+                        className="w-full bg-jira-card border border-jira-border rounded p-1.5 text-slate-200"
+                      />
                     </div>
-                    <div className="col-span-2 mt-1">
-                      <span className="block text-[10px] text-slate-500 uppercase">Assigné à</span>
-                      <span className="font-semibold text-slate-200">{selectedTask.assignee}</span>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 uppercase mb-1">Durée (jours)</label>
+                        <input 
+                          type="number" min="1"
+                          value={selectedTask.duration}
+                          onChange={e => {
+                            const updated = tasks.map(t => t.id === selectedTask.id ? { ...t, duration: Number(e.target.value) } : t);
+                            broadcastTasks(updated);
+                          }}
+                          className="w-full bg-jira-card border border-jira-border rounded p-1.5 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 uppercase mb-1">Couleur</label>
+                        <select 
+                          value={selectedTask.color}
+                          onChange={e => {
+                            const updated = tasks.map(t => t.id === selectedTask.id ? { ...t, color: e.target.value } : t);
+                            broadcastTasks(updated);
+                          }}
+                          className="w-full bg-jira-card border border-jira-border rounded p-1.5 text-slate-200"
+                        >
+                          {COLOR_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.name}</option>)}
+                        </select>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Section Sous-tâches */}
+                  {/* Liste & Formulaire des Sous-tâches */}
                   <div>
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-                      Sous-tâches ({selectedTask.subtasks.filter(s => s.done).length}/{selectedTask.subtasks.length})
+                      Sous-tâches & Durées
                     </h3>
 
-                    {/* Liste des sous-tâches */}
                     <div className="space-y-2 mb-4">
                       {selectedTask.subtasks.map(st => (
-                        <label 
-                          key={st.id} 
-                          className="flex items-center gap-3 p-2.5 bg-jira-bg rounded-xl border border-jira-border/80 cursor-pointer hover:border-slate-700 transition"
-                        >
-                          <input 
-                            type="checkbox" 
-                            checked={st.done}
-                            onChange={() => toggleSubtask(selectedTask.id, st.id)}
-                            className="rounded accent-blue-600 w-4 h-4 cursor-pointer"
-                          />
-                          <span className={`text-xs ${st.done ? 'line-through text-slate-500' : 'text-slate-200'}`}>
-                            {st.title}
+                        <div key={st.id} className="p-2.5 bg-jira-bg rounded-xl border border-jira-border flex items-center justify-between text-xs">
+                          <label className="flex items-center gap-2 cursor-pointer flex-1 truncate pr-2">
+                            <input 
+                              type="checkbox" checked={st.done} 
+                              onChange={() => toggleSubtask(selectedTask.id, st.id)}
+                              className="accent-blue-600 rounded"
+                            />
+                            <span className={st.done ? 'line-through text-slate-500' : 'text-slate-200'}>{st.title}</span>
+                          </label>
+                          <span className="text-[10px] font-mono text-slate-400 bg-jira-card px-2 py-0.5 rounded border border-jira-border">
+                            👤 {st.assignee} ({st.duration}j)
                           </span>
-                        </label>
+                        </div>
                       ))}
                     </div>
 
-                    {/* Formulaire ajout sous-tâche */}
-                    <form onSubmit={handleAddSubtask} className="flex gap-2">
+                    {/* Formulaire Sous-tâche complète */}
+                    <form onSubmit={handleAddSubtask} className="space-y-2 bg-jira-bg p-3 rounded-xl border border-jira-border">
                       <input 
-                        type="text" 
-                        placeholder="+ Nouvelle sous-tâche..." 
-                        value={newSubtaskTitle}
-                        onChange={e => setNewSubtaskTitle(e.target.value)}
-                        className="flex-1 bg-jira-bg text-xs px-3 py-2 rounded-xl border border-jira-border text-slate-200 focus:outline-none focus:border-blue-500"
+                        type="text" placeholder="Titre sous-tâche..." required
+                        value={newSubtask.title}
+                        onChange={e => setNewSubtask({...newSubtask, title: e.target.value})}
+                        className="w-full bg-jira-card text-xs p-2 rounded border border-jira-border text-slate-200"
                       />
-                      <button 
-                        type="submit"
-                        className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition"
-                      >
-                        Ajouter
+                      <div className="grid grid-cols-2 gap-2">
+                        <input 
+                          type="text" placeholder="Assigné à"
+                          value={newSubtask.assignee}
+                          onChange={e => setNewSubtask({...newSubtask, assignee: e.target.value})}
+                          className="bg-jira-card text-xs p-2 rounded border border-jira-border text-slate-200"
+                        />
+                        <input 
+                          type="number" min="1" placeholder="Durée (j)"
+                          value={newSubtask.duration}
+                          onChange={e => setNewSubtask({...newSubtask, duration: e.target.value})}
+                          className="bg-jira-card text-xs p-2 rounded border border-jira-border text-slate-200"
+                        />
+                      </div>
+                      <button type="submit" className="w-full py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded transition">
+                        + Ajouter sous-tâche
                       </button>
                     </form>
                   </div>
@@ -691,81 +765,29 @@
             )}
           </div>
 
-          {/* Modal de création de tâche */}
+          {/* Modal Création de Tâche */}
           {isCreateModalOpen && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-jira-card border border-jira-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-slate-100">Créer une nouvelle Tâche</h3>
-                  <button onClick={() => setIsCreateModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
-                </div>
-
+                <h3 className="text-lg font-bold text-slate-100 mb-4">Créer une Tâche</h3>
                 <form onSubmit={handleCreateTask} className="space-y-4">
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1 font-medium">Titre de la tâche</label>
-                    <input 
-                      type="text" required placeholder="ex: Refonte API REST V2"
-                      value={newTaskForm.title}
-                      onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})}
-                      className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200 focus:outline-none focus:border-blue-500"
-                    />
+                    <label className="block text-xs text-slate-400 mb-1">Titre</label>
+                    <input type="text" required value={newTaskForm.title} onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})} className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200" />
                   </div>
-
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1 font-medium">Catégorie</label>
-                      <input 
-                        type="text" placeholder="ex: Tech, UI"
-                        value={newTaskForm.category}
-                        onChange={e => setNewTaskForm({...newTaskForm, category: e.target.value})}
-                        className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200 focus:outline-none focus:border-blue-500"
-                      />
+                      <label className="block text-xs text-slate-400 mb-1">Date de début</label>
+                      <input type="date" required value={newTaskForm.startDate} onChange={e => setNewTaskForm({...newTaskForm, startDate: e.target.value})} className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200" />
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1 font-medium">Assigné à</label>
-                      <input 
-                        type="text" placeholder="ex: Julien K."
-                        value={newTaskForm.assignee}
-                        onChange={e => setNewTaskForm({...newTaskForm, assignee: e.target.value})}
-                        className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200 focus:outline-none focus:border-blue-500"
-                      />
+                      <label className="block text-xs text-slate-400 mb-1">Durée (jours)</label>
+                      <input type="number" min="1" required value={newTaskForm.duration} onChange={e => setNewTaskForm({...newTaskForm, duration: e.target.value})} className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200" />
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1 font-medium">Jour de début (1-30)</label>
-                      <input 
-                        type="number" min="1" max="30" required
-                        value={newTaskForm.startDay}
-                        onChange={e => setNewTaskForm({...newTaskForm, startDay: e.target.value})}
-                        className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1 font-medium">Durée (jours)</label>
-                      <input 
-                        type="number" min="1" max="30" required
-                        value={newTaskForm.duration}
-                        onChange={e => setNewTaskForm({...newTaskForm, duration: e.target.value})}
-                        className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                  </div>
-
                   <div className="flex justify-end gap-3 pt-4 border-t border-jira-border">
-                    <button 
-                      type="button" onClick={() => setIsCreateModalOpen(false)}
-                      className="px-4 py-2 bg-jira-bg hover:bg-slate-800 text-xs font-semibold rounded-xl border border-jira-border text-slate-300"
-                    >
-                      Annuler
-                    </button>
-                    <button 
-                      type="submit"
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-semibold rounded-xl text-white transition shadow-lg shadow-blue-600/20"
-                    >
-                      Créer la tâche
-                    </button>
+                    <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 bg-jira-bg text-xs text-slate-300 rounded-xl">Annuler</button>
+                    <button type="submit" className="px-4 py-2 bg-blue-600 text-xs font-semibold rounded-xl text-white">Créer</button>
                   </div>
                 </form>
               </div>
