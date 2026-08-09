@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jira Enterprise - Roadmap, Kanban & Planning</title>
+  <title>Jira Enterprise - Roadmap, Kanban & Resource Planning</title>
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -39,13 +39,14 @@
     ::-webkit-scrollbar-track { background: #0B0F19; }
     ::-webkit-scrollbar-thumb { background: #232D42; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #3B82F6; }
+    .dragging-active { cursor: grabbing !important; user-select: none !important; }
   </style>
 </head>
 <body class="bg-jira-bg text-slate-100 font-sans antialiased min-h-screen overflow-hidden selection:bg-blue-500/30">
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useRef, useMemo } = React;
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
     // --- HELPERS DATES EN FRANÇAIS ET UTILS ---
     const utf8_to_b64 = (str) => window.btoa(unescape(encodeURIComponent(str)));
@@ -78,7 +79,7 @@
 
     const TODAY_STR = formatDateIso(new Date());
 
-    // DONNÉES INITIALES (Projets & Tâches)
+    // DONNÉES INITIALES PROJETS & TÂCHES
     const INITIAL_PROJECTS = [
       {
         id: 'proj-1',
@@ -97,19 +98,19 @@
         id: 'proj-2',
         title: 'Design System & UI Components',
         category: 'Frontend',
-        startDate: formatDateIso(addDays(new Date(), 3)),
+        startDate: formatDateIso(addDays(new Date(), 2)),
         duration: 12,
         color: 'from-purple-600 to-pink-600',
         tasks: [
           { id: 't-2-1', title: 'Tokens de couleurs & Figma', assignee: 'Sophie T.', duration: 3, status: 'DONE' },
-          { id: 't-2-2', title: 'Composants Formulaires React', assignee: 'Sophie T.', duration: 10, status: 'IN_PROGRESS' } // Dépassement volontaire (3+10 = 13 > 12)
+          { id: 't-2-2', title: 'Composants Formulaires React', assignee: 'Sophie T.', duration: 8, status: 'IN_PROGRESS' }
         ]
       },
       {
         id: 'proj-3',
         title: 'Optimisation API & Cache Redis',
         category: 'Backend',
-        startDate: formatDateIso(addDays(new Date(), -4)),
+        startDate: formatDateIso(addDays(new Date(), -3)),
         duration: 8,
         color: 'from-emerald-600 to-teal-600',
         tasks: [
@@ -121,32 +122,31 @@
     function RoadmapApp() {
       // 1. États Généraux
       const [projects, setProjects] = useState(() => {
-        const saved = localStorage.getItem('jira_projects_data');
+        const saved = localStorage.getItem('jira_enterprise_projects_v2');
         return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
       });
 
       const [activeTab, setActiveTab] = useState('roadmap'); // 'roadmap' | 'kanban' | 'planning'
       const [selectedProjectId, setSelectedProjectId] = useState('proj-1');
-      const [editingTask, setEditingTask] = useState(null); // Tâche en cours de modification dans le modal
-      const [columnWidth, setColumnWidth] = useState(48);
+      const [editingTask, setEditingTask] = useState(null);
+      const [columnWidth, setColumnWidth] = useState(48); // Pixel width par jour
+      const [planningScope, setPlanningScope] = useState(14); // Sprint 14 jours par défaut
 
-      // Modales & Drawers
+      // Modales & Configuration
       const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
       const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-      // Formulaire Nouveau Projet
+      // Formulaires
       const [newProjectForm, setNewProjectForm] = useState({
         title: '', category: 'Tech', startDate: TODAY_STR, duration: 10, color: 'from-blue-600 to-indigo-600'
       });
-
-      // Formulaire Nouvelle Tâche
       const [newTaskForm, setNewTaskForm] = useState({ title: '', assignee: 'Alexandre M.', duration: 3, status: 'TODO' });
 
-      // Drag / Resize State
+      // Fluid Drag State
       const [dragState, setDragState] = useState(null);
-      const [dragPreview, setDragPreview] = useState(null);
+      const dragAnimRef = useRef(null);
 
-      // Configuration GitHub API
+      // Configuration GitHub API & WebRTC
       const [ghConfig, setGhConfig] = useState(() => {
         const saved = localStorage.getItem('gh_config');
         return saved ? JSON.parse(saved) : { owner: '', repo: '', path: 'data.json', token: '' };
@@ -155,17 +155,17 @@
       const [connectedPeers, setConnectedPeers] = useState(1);
       const yDocRef = useRef(null);
 
-      // Calcul de la timeline globale
+      // Timeline Global Bounds
       const timelineStartDate = useMemo(() => {
-        if (projects.length === 0) return addDays(new Date(), -5);
+        if (projects.length === 0) return addDays(new Date(), -3);
         const dates = projects.map(p => parseDate(p.startDate).getTime());
         const minDate = new Date(Math.min(...dates, new Date().getTime()));
-        return addDays(minDate, -5);
+        return addDays(minDate, -3);
       }, [projects]);
 
-      const TOTAL_TIMELINE_DAYS = 50;
+      const TOTAL_TIMELINE_DAYS = activeTab === 'planning' ? planningScope : 45;
 
-      // Génération de la structure des Mois pour l'en-tête du calendrier
+      // Calcul des mois pour l'en-tête du calendrier
       const timelineMonths = useMemo(() => {
         const monthsMap = [];
         let currentMonthKey = '';
@@ -186,9 +186,9 @@
           currentMonthObj.daysCount++;
         }
         return monthsMap;
-      }, [timelineStartDate]);
+      }, [timelineStartDate, TOTAL_TIMELINE_DAYS]);
 
-      // Liste à plat de toutes les tâches (pour le Kanban et SoPlanning)
+      // Flat list des tâches avec référence au projet parent
       const allFlatTasks = useMemo(() => {
         const list = [];
         projects.forEach(p => {
@@ -199,19 +199,19 @@
         return list;
       }, [projects]);
 
-      // Liste unique des collaborateurs
+      // Liste des collaborateurs
       const collaborators = useMemo(() => {
         const set = new Set();
         allFlatTasks.forEach(t => { if (t.assignee) set.add(t.assignee); });
-        if (set.size === 0) set.add('Non assigné');
+        if (set.size === 0) set.add('Alexandre M.');
         return Array.from(set);
       }, [allFlatTasks]);
 
-      // Persistance LocalStorage
-      useEffect(() => localStorage.setItem('jira_projects_data', JSON.stringify(projects)), [projects]);
+      // Persistance
+      useEffect(() => localStorage.setItem('jira_enterprise_projects_v2', JSON.stringify(projects)), [projects]);
       useEffect(() => localStorage.setItem('gh_config', JSON.stringify(ghConfig)), [ghConfig]);
 
-      // WebRTC P2P Sync (Yjs)
+      // Sync WebRTC (Yjs)
       useEffect(() => {
         if (!window.Y || !window.YWebrtc) return;
         const ydoc = new window.Y.Doc();
@@ -229,7 +229,7 @@
         return () => { provider.destroy(); ydoc.destroy(); };
       }, []);
 
-      const broadcastProjects = (updated) => {
+      const broadcastProjects = useCallback((updated) => {
         setProjects(updated);
         if (yDocRef.current && yDocRef.current.yProjects) {
           const { ydoc, yProjects } = yDocRef.current;
@@ -238,16 +238,23 @@
             yProjects.insert(0, updated);
           });
         }
+      }, []);
+
+      // CALCUL DU POURCENTAGE D'AVANCEMENT D'UN PROJET
+      const getProjectProgress = (project) => {
+        if (!project.tasks || project.tasks.length === 0) return 0;
+        const doneCount = project.tasks.filter(t => t.status === 'DONE').length;
+        return Math.round((doneCount / project.tasks.length) * 100);
       };
 
-      // VÉRIFICATION DÉPASSEMENT SOUS-TÂCHES
+      // VÉRIFICATION DÉPASSEMENT DURATION
       const checkTasksOverflow = (project) => {
         if (!project.tasks || project.tasks.length === 0) return false;
-        const totalTaskDuration = project.tasks.reduce((sum, t) => sum + Number(t.duration || 0), 0);
-        return totalTaskDuration > project.duration;
+        const totalDuration = project.tasks.reduce((sum, t) => sum + Number(t.duration || 0), 0);
+        return totalDuration > project.duration;
       };
 
-      // DRAG / RESIZE PROJET ENGINE
+      // DRAG & RESIZE HIGH-PERFORMANCE ENGINE
       const handleMouseDown = (e, projectId, action) => {
         e.stopPropagation();
         e.preventDefault();
@@ -256,41 +263,44 @@
 
         setDragState({
           projectId, action, startX: e.clientX,
-          initialStartDate: proj.startDate, initialDuration: proj.duration
+          initialStartDate: proj.startDate, initialDuration: proj.duration,
+          currentStartDate: proj.startDate, currentDuration: proj.duration
         });
-
-        setDragPreview({ projectId, startDate: proj.startDate, duration: proj.duration });
       };
 
       useEffect(() => {
         const handleMouseMove = (e) => {
           if (!dragState) return;
-          const deltaX = e.clientX - dragState.startX;
-          const dayDelta = Math.round(deltaX / columnWidth);
 
-          let newStartDate = dragState.initialStartDate;
-          let newDuration = dragState.initialDuration;
+          if (dragAnimRef.current) cancelAnimationFrame(dragAnimRef.current);
 
-          if (dragState.action === 'move') {
-            newStartDate = formatDateIso(addDays(parseDate(dragState.initialStartDate), dayDelta));
-          } else if (dragState.action === 'resize-left') {
-            const actualDays = Math.min(dayDelta, dragState.initialDuration - 1);
-            newStartDate = formatDateIso(addDays(parseDate(dragState.initialStartDate), actualDays));
-            newDuration = dragState.initialDuration - actualDays;
-          } else if (dragState.action === 'resize-right') {
-            newDuration = Math.max(1, dragState.initialDuration + dayDelta);
-          }
+          dragAnimRef.current = requestAnimationFrame(() => {
+            const deltaX = e.clientX - dragState.startX;
+            const dayDelta = Math.round(deltaX / columnWidth);
 
-          setDragPreview({ projectId: dragState.projectId, startDate: newStartDate, duration: newDuration });
+            let newStart = dragState.initialStartDate;
+            let newDur = dragState.initialDuration;
+
+            if (dragState.action === 'move') {
+              newStart = formatDateIso(addDays(parseDate(dragState.initialStartDate), dayDelta));
+            } else if (dragState.action === 'resize-left') {
+              const actualDays = Math.min(dayDelta, dragState.initialDuration - 1);
+              newStart = formatDateIso(addDays(parseDate(dragState.initialStartDate), actualDays));
+              newDur = dragState.initialDuration - actualDays;
+            } else if (dragState.action === 'resize-right') {
+              newDur = Math.max(1, dragState.initialDuration + dayDelta);
+            }
+
+            setDragState(prev => prev ? { ...prev, currentStartDate: newStart, currentDuration: newDur } : null);
+          });
         };
 
         const handleMouseUp = () => {
-          if (dragState && dragPreview) {
-            const updated = projects.map(p => p.id === dragState.projectId ? { ...p, startDate: dragPreview.startDate, duration: dragPreview.duration } : p);
+          if (dragState) {
+            const updated = projects.map(p => p.id === dragState.projectId ? { ...p, startDate: dragState.currentStartDate, duration: dragState.currentDuration } : p);
             broadcastProjects(updated);
           }
           setDragState(null);
-          setDragPreview(null);
         };
 
         if (dragState) {
@@ -301,9 +311,31 @@
           window.removeEventListener('mousemove', handleMouseMove);
           window.removeEventListener('mouseup', handleMouseUp);
         };
-      }, [dragState, dragPreview, columnWidth, projects]);
+      }, [dragState, columnWidth, projects, broadcastProjects]);
 
-      // GESTION DES PROJETS & TÂCHES
+      // KANBAN HTML5 DRAG & DROP
+      const handleKanbanDragStart = (e, taskId) => {
+        e.dataTransfer.setData('text/plain', taskId);
+      };
+
+      const handleKanbanDrop = (e, targetStatus) => {
+        e.preventDefault();
+        const taskId = e.dataTransfer.getData('text/plain');
+        if (!taskId) return;
+
+        const updatedProjects = projects.map(p => ({
+          ...p,
+          tasks: (p.tasks || []).map(t => t.id === taskId ? { ...t, status: targetStatus } : t)
+        }));
+        broadcastProjects(updatedProjects);
+      };
+
+      // GESTION DES MODIFICATIONS DE PROJET
+      const handleUpdateProjectField = (projId, field, value) => {
+        const updated = projects.map(p => p.id === projId ? { ...p, [field]: value } : p);
+        broadcastProjects(updated);
+      };
+
       const handleCreateProject = (e) => {
         e.preventDefault();
         if (!newProjectForm.title.trim()) return;
@@ -333,7 +365,7 @@
               {
                 id: `t-${p.id}-${Date.now()}`,
                 title: newTaskForm.title.trim(),
-                assignee: newTaskForm.assignee || 'Non assigné',
+                assignee: newTaskForm.assignee || 'Alexandre M.',
                 duration: Number(newTaskForm.duration) || 1,
                 status: newTaskForm.status || 'TODO'
               }
@@ -346,15 +378,10 @@
       };
 
       const handleUpdateTask = (updatedTask) => {
-        const updatedProjects = projects.map(p => {
-          if (!p.tasks) return p;
-          const hasTask = p.tasks.some(t => t.id === updatedTask.id);
-          if (!hasTask) return p;
-          return {
-            ...p,
-            tasks: p.tasks.map(t => t.id === updatedTask.id ? updatedTask : t)
-          };
-        });
+        const updatedProjects = projects.map(p => ({
+          ...p,
+          tasks: (p.tasks || []).map(t => t.id === updatedTask.id ? updatedTask : t)
+        }));
         broadcastProjects(updatedProjects);
         setEditingTask(null);
       };
@@ -368,26 +395,26 @@
         setEditingTask(null);
       };
 
-      const updateTaskStatusQuick = (taskId, newStatus) => {
-        const updatedProjects = projects.map(p => ({
-          ...p,
-          tasks: (p.tasks || []).map(t => t.id === taskId ? { ...t, status: newStatus } : t)
-        }));
-        broadcastProjects(updatedProjects);
-      };
-
       const deleteProject = (projId) => {
-        if (confirm("Supprimer ce projet et toutes ses tâches associees ?")) {
+        if (confirm("Supprimer ce projet et toutes ses tâches ?")) {
           const updated = projects.filter(p => p.id !== projId);
           broadcastProjects(updated);
           if (selectedProjectId === projId) setSelectedProjectId(updated[0]?.id || null);
         }
       };
 
-      // SAUVEGARDE GITHUB REST API
+      // VUE D'ENSEMBLE (AUTOFIT ZOOM)
+      const fitAllTasks = () => {
+        const container = document.getElementById('gantt-container');
+        if (!container) return;
+        const calculatedWidth = Math.max(28, Math.floor(container.clientWidth / TOTAL_TIMELINE_DAYS));
+        setColumnWidth(calculatedWidth);
+      };
+
+      // SAUVEGARDE GITHUB API
       const saveToGitHub = async () => {
         if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) {
-          alert("Veuillez renseigner votre Token dans le menu ⚙️ Configuration");
+          alert("Veuillez renseigner vos paramètres dans ⚙️ Config GitHub");
           return;
         }
         setSyncStatus('Commit en cours...');
@@ -410,19 +437,20 @@
           });
 
           if (!putRes.ok) throw new Error();
-          setSyncStatus('✅ Synchronisé sur GitHub');
+          setSyncStatus('✅ Commité sur GitHub !');
           setTimeout(() => setSyncStatus(''), 3000);
           setIsConfigModalOpen(false);
         } catch {
-          setSyncStatus('❌ Erreur de sauvegarde');
+          setSyncStatus('❌ Échec de sauvegarde');
         }
       };
 
       const selectedProject = projects.find(p => p.id === selectedProjectId);
 
       return (
-        <div className="flex flex-col h-screen overflow-hidden">
-          {/* HEADER PRINCIPAL PREMIUM JIRA */}
+        <div className={`flex flex-col h-screen overflow-hidden ${dragState ? 'dragging-active' : ''}`}>
+          
+          {/* HEADER PRINCIPAL */}
           <header className="bg-jira-card border-b border-jira-border px-6 py-3 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-3">
@@ -430,7 +458,7 @@
                 <h1 className="text-base font-bold text-slate-100">Jira Enterprise</h1>
               </div>
 
-              {/* Navigation des 3 Vues Principales */}
+              {/* Navigation des 3 Vues */}
               <div className="flex bg-jira-bg p-1 rounded-xl border border-jira-border text-xs font-semibold">
                 <button 
                   onClick={() => setActiveTab('roadmap')}
@@ -454,17 +482,14 @@
             </div>
 
             <div className="flex items-center gap-3">
-              {/* Statut P2P & Synchro */}
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-jira-bg border border-jira-border text-xs text-emerald-400">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                 <span>{connectedPeers} en direct</span>
               </div>
 
-              {/* Bouton Engrenage Configuration GitHub */}
               <button 
                 onClick={() => setIsConfigModalOpen(true)}
-                className="px-3 py-2 bg-jira-bg hover:bg-slate-800 text-slate-200 border border-jira-border text-xs font-semibold rounded-xl transition flex items-center gap-2"
-                title="Configuration de la sauvegarde GitHub"
+                className="px-3 py-2 bg-jira-bg hover:bg-slate-800 text-slate-200 border border-jira-border text-xs font-semibold rounded-xl transition"
               >
                 ⚙️ Config GitHub
               </button>
@@ -478,21 +503,55 @@
             </div>
           </header>
 
+          {/* CONTROLS TOOLBAR (ZOOM & PORTÉE) */}
+          <div className="bg-slate-900/90 border-b border-jira-border px-6 py-2 flex items-center justify-between text-xs text-slate-400 shrink-0">
+            <div className="flex items-center gap-3">
+              <span className="font-semibold text-slate-300">Vue :</span>
+              {activeTab === 'planning' && (
+                <div className="flex gap-1 bg-jira-bg p-1 rounded-lg border border-jira-border">
+                  <button onClick={() => setPlanningScope(14)} className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${planningScope === 14 ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Sprint 2 sem. (14j)</button>
+                  <button onClick={() => setPlanningScope(30)} className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${planningScope === 30 ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>1 Mois (30j)</button>
+                  <button onClick={() => setPlanningScope(45)} className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${planningScope === 45 ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>Vue Globale</button>
+                </div>
+              )}
+              {syncStatus && <span className="font-medium text-blue-400">{syncStatus}</span>}
+            </div>
+
+            {/* Zoom Slider */}
+            {activeTab !== 'kanban' && (
+              <div className="flex items-center gap-3">
+                <span className="font-semibold text-slate-300">Zoom :</span>
+                <input 
+                  type="range" min="28" max="110" value={columnWidth} 
+                  onChange={e => setColumnWidth(Number(e.target.value))}
+                  className="w-32 accent-blue-500 cursor-pointer"
+                />
+                <button 
+                  onClick={fitAllTasks}
+                  className="px-3 py-1 bg-jira-card hover:bg-slate-800 rounded-lg border border-jira-border text-slate-200 transition font-medium"
+                >
+                  Vue d'ensemble
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* MAIN CONTENT AREA */}
           <div className="flex-1 flex overflow-hidden">
 
-            {/* VUE 1 : ROADMAP PROJETS & GANTT */}
+            {/* VUE 1 : ROADMAP PROJETS (GANTT) */}
             {activeTab === 'roadmap' && (
               <>
-                {/* Panel Gauche: Liste des Projets */}
+                {/* Left Sidebar: Projets */}
                 <div className="w-80 border-r border-jira-border bg-jira-card flex flex-col shrink-0">
-                  <div className="h-12 border-b border-jira-border px-4 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
+                  <div className="h-16 border-b border-jira-border px-4 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
                     <span>Projets ({projects.length})</span>
-                    <span>Tâches</span>
+                    <span>Progression</span>
                   </div>
 
                   <div className="flex-1 overflow-y-auto divide-y divide-jira-border/50">
                     {projects.map(proj => {
+                      const pct = getProjectProgress(proj);
                       const hasOverflow = checkTasksOverflow(proj);
                       const isSelected = proj.id === selectedProjectId;
 
@@ -516,26 +575,23 @@
                             </div>
                           </div>
 
-                          {hasOverflow ? (
-                            <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-bold animate-pulse" title="La somme des sous-tâches dépasse la durée du projet">
-                              ⚠️ Dépassement
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-mono bg-jira-bg px-2 py-0.5 rounded border border-jira-border text-slate-400">
-                              {(proj.tasks || []).length} T
-                            </span>
-                          )}
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="text-[10px] font-mono font-bold text-blue-400">{pct}%</span>
+                            {hasOverflow && (
+                              <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 text-[9px] font-bold">⚠️</span>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* Panel Droit: Gantt Timeline avec Mois et Jours en Français */}
-                <div className="flex-1 flex flex-col overflow-x-auto bg-jira-bg relative">
+                {/* Right Timeline: Gantt Grid */}
+                <div id="gantt-container" className="flex-1 flex flex-col overflow-x-auto bg-jira-bg relative">
                   
-                  {/* Ligne 1 : En-tête des Mois */}
-                  <div className="h-6 border-b border-jira-border flex bg-slate-900/80 sticky top-0 z-20" style={{ width: `${TOTAL_TIMELINE_DAYS * columnWidth}px` }}>
+                  {/* Mois */}
+                  <div className="h-6 border-b border-jira-border flex bg-slate-900/90 sticky top-0 z-20" style={{ width: `${TOTAL_TIMELINE_DAYS * columnWidth}px` }}>
                     {timelineMonths.map((m, idx) => (
                       <div 
                         key={idx} 
@@ -547,7 +603,7 @@
                     ))}
                   </div>
 
-                  {/* Ligne 2 : En-tête des Jours de la semaine */}
+                  {/* Jours */}
                   <div className="h-10 border-b border-jira-border flex items-center shrink-0 bg-slate-900/60 sticky top-6 z-10" style={{ width: `${TOTAL_TIMELINE_DAYS * columnWidth}px` }}>
                     {Array.from({ length: TOTAL_TIMELINE_DAYS }).map((_, i) => {
                       const dayDate = addDays(timelineStartDate, i);
@@ -563,16 +619,14 @@
                             isToday ? 'bg-blue-500/20 text-blue-400 font-bold border-b-2 border-blue-500' : isWeekend ? 'bg-slate-950/40 text-slate-600' : 'text-slate-400'
                           }`}
                         >
-                          <span className="uppercase text-[9px] text-slate-500">
-                            {dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}
-                          </span>
+                          <span className="uppercase text-[9px] text-slate-500">{dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span>
                           <span>{dayDate.getDate()}</span>
                         </div>
                       );
                     })}
                   </div>
 
-                  {/* Grille Gantt et Blocs de Projets */}
+                  {/* Blocs de Projets */}
                   <div className="flex-1 relative" style={{ width: `${TOTAL_TIMELINE_DAYS * columnWidth}px` }}>
                     <div className="absolute inset-0 flex pointer-events-none">
                       {Array.from({ length: TOTAL_TIMELINE_DAYS }).map((_, i) => (
@@ -583,43 +637,52 @@
                     <div className="relative">
                       {projects.map(proj => {
                         const isDraggingThis = dragState && dragState.projectId === proj.id;
-                        const displayStartDate = isDraggingThis ? dragPreview.startDate : proj.startDate;
-                        const displayDuration = isDraggingThis ? dragPreview.duration : proj.duration;
+                        const displayStart = isDraggingThis ? dragState.currentStartDate : proj.startDate;
+                        const displayDur = isDraggingThis ? dragState.currentDuration : proj.duration;
 
-                        const offsetDays = diffDays(parseDate(displayStartDate), timelineStartDate);
+                        const offsetDays = diffDays(parseDate(displayStart), timelineStartDate);
                         const isSelected = proj.id === selectedProjectId;
-                        const endDateStr = formatDateIso(addDays(parseDate(displayStartDate), displayDuration - 1));
+                        const endDateStr = formatDateIso(addDays(parseDate(displayStart), displayDur - 1));
+                        const pct = getProjectProgress(proj);
 
                         return (
                           <div key={proj.id} className="h-16 border-b border-jira-border/40 relative flex items-center">
                             
-                            {/* Bloc Projet */}
                             <div
                               style={{
                                 left: `${offsetDays * columnWidth}px`,
-                                width: `${displayDuration * columnWidth}px`
+                                width: `${displayDur * columnWidth}px`
                               }}
                               onMouseDown={(e) => handleMouseDown(e, proj.id, 'move')}
                               onClick={() => setSelectedProjectId(proj.id)}
-                              className={`absolute h-10 rounded-lg bg-gradient-to-r ${proj.color} shadow-lg cursor-grab active:cursor-grabbing flex items-center justify-between group border border-white/20 select-none ${
+                              className={`absolute h-10 rounded-lg bg-slate-900 shadow-xl cursor-grab active:cursor-grabbing flex items-center justify-between group border border-white/20 overflow-hidden select-none ${
                                 isSelected ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-jira-bg' : ''
                               }`}
                             >
-                              <div onMouseDown={(e) => handleMouseDown(e, proj.id, 'resize-left')} className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/20 opacity-0 group-hover:opacity-100 rounded-l-lg hover:bg-white/50" />
+                              {/* Barre de remplissage de pourcentage (%) */}
+                              <div 
+                                className={`absolute top-0 bottom-0 left-0 bg-gradient-to-r ${proj.color} opacity-80 transition-all duration-300`}
+                                style={{ width: `${pct}%` }}
+                              />
+
+                              {/* Poignée Gauche */}
+                              <div onMouseDown={(e) => handleMouseDown(e, proj.id, 'resize-left')} className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/20 opacity-0 group-hover:opacity-100 z-10 hover:bg-white/60" />
                               
-                              <div className="truncate px-3 pointer-events-none flex items-center justify-between w-full">
-                                <span className="text-xs font-bold text-white truncate">{proj.title}</span>
-                                <span className="text-[10px] text-white/90 font-mono ml-2 bg-black/30 px-1.5 py-0.5 rounded">
-                                  {displayDuration}j
+                              {/* Label avec Titre + % */}
+                              <div className="truncate px-3 pointer-events-none flex items-center justify-between w-full z-10">
+                                <span className="text-xs font-bold text-white truncate drop-shadow">{proj.title}</span>
+                                <span className="text-[10px] text-white font-mono ml-2 bg-black/40 px-1.5 py-0.5 rounded font-bold border border-white/10">
+                                  {pct}% ({displayDur}j)
                                 </span>
                               </div>
 
-                              <div onMouseDown={(e) => handleMouseDown(e, proj.id, 'resize-right')} className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/20 opacity-0 group-hover:opacity-100 rounded-r-lg hover:bg-white/50" />
+                              {/* Poignée Droite */}
+                              <div onMouseDown={(e) => handleMouseDown(e, proj.id, 'resize-right')} className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/20 opacity-0 group-hover:opacity-100 z-10 hover:bg-white/60" />
 
-                              {/* Tooltip de précision lors du glissement */}
+                              {/* Tooltip de survol pendant le glissement */}
                               {isDraggingThis && (
                                 <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 border border-blue-500 text-slate-100 text-[10px] font-mono px-3 py-1 rounded-lg shadow-2xl z-30 whitespace-nowrap">
-                                  📅 Du {formatDateFr(displayStartDate)} au {formatDateFr(endDateStr)} ({displayDuration} jours)
+                                  📅 {formatDateFr(displayStart)} → {formatDateFr(endDateStr)} ({displayDur}j)
                                 </div>
                               )}
                             </div>
@@ -632,7 +695,7 @@
               </>
             )}
 
-            {/* VUE 2 : TABLEAU KANBAN (EXCLUSIVEMENT LES TÂCHES AVEC LE TAG DU PROJET) */}
+            {/* VUE 2 : TABLEAU KANBAN DRAG & DROP */}
             {activeTab === 'kanban' && (
               <div className="flex-1 p-6 bg-jira-bg overflow-x-auto">
                 <div className="grid grid-cols-4 gap-6 min-w-[1100px] h-full">
@@ -645,7 +708,12 @@
                     const colTasks = allFlatTasks.filter(t => t.status === col.id);
 
                     return (
-                      <div key={col.id} className="bg-jira-card border border-jira-border rounded-2xl p-4 flex flex-col h-full">
+                      <div 
+                        key={col.id} 
+                        onDragOver={e => e.preventDefault()}
+                        onDrop={e => handleKanbanDrop(e, col.id)}
+                        className="bg-jira-card border border-jira-border rounded-2xl p-4 flex flex-col h-full"
+                      >
                         <div className={`flex items-center justify-between border-b-2 ${col.color} pb-3 mb-4`}>
                           <h3 className="font-bold text-sm text-slate-200">{col.title}</h3>
                           <span className="text-xs font-mono bg-jira-bg border border-jira-border px-2 py-0.5 rounded-full text-slate-400">
@@ -657,10 +725,11 @@
                           {colTasks.map(task => (
                             <div 
                               key={task.id}
-                              className="bg-jira-bg border border-jira-border hover:border-slate-600 p-4 rounded-xl shadow-lg transition flex flex-col justify-between gap-3 group"
+                              draggable
+                              onDragStart={e => handleKanbanDragStart(e, task.id)}
+                              className="bg-jira-bg border border-jira-border hover:border-slate-500 p-4 rounded-xl shadow-lg transition flex flex-col justify-between gap-3 group cursor-grab active:cursor-grabbing"
                             >
                               <div>
-                                {/* Badge Tag du Projet Parent */}
                                 <div className="flex items-center justify-between mb-2">
                                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded text-white bg-gradient-to-r ${task.project.color}`}>
                                     {task.project.title}
@@ -679,18 +748,9 @@
 
                               <div className="flex items-center justify-between pt-2 border-t border-jira-border/50 text-[10px] text-slate-400">
                                 <span className="font-semibold text-slate-300">👤 {task.assignee}</span>
-                                
-                                {/* Selecteur de Statut */}
-                                <select 
-                                  value={task.status}
-                                  onChange={e => updateTaskStatusQuick(task.id, e.target.value)}
-                                  className="bg-jira-card border border-jira-border text-[10px] rounded px-1.5 py-0.5 text-slate-200"
-                                >
-                                  <option value="TODO">À faire</option>
-                                  <option value="IN_PROGRESS">En cours</option>
-                                  <option value="IN_REVIEW">En revue</option>
-                                  <option value="DONE">Terminé</option>
-                                </select>
+                                <span className="font-mono bg-jira-card px-1.5 py-0.5 rounded border border-jira-border">
+                                  Glisser ⠿
+                                </span>
                               </div>
                             </div>
                           ))}
@@ -702,10 +762,10 @@
               </div>
             )}
 
-            {/* VUE 3 : PLANNING PAR COLLABORATEUR (SOPLANNING STYLE) */}
+            {/* VUE 3 : PLANNING COLLABORATEUR (SOPLANNING PRECISION) */}
             {activeTab === 'planning' && (
               <div className="flex-1 flex flex-col overflow-x-auto bg-jira-bg">
-                {/* Header Calendrier Mois & Jours */}
+                {/* Header Calendrier Jours & Dates en FR */}
                 <div className="h-10 border-b border-jira-border flex items-center shrink-0 bg-slate-900/80 sticky top-0 z-10" style={{ width: `${TOTAL_TIMELINE_DAYS * columnWidth + 240}px` }}>
                   <div className="w-60 px-4 font-bold text-xs text-slate-400 border-r border-jira-border">Collaborateurs</div>
                   <div className="flex-1 flex">
@@ -713,8 +773,9 @@
                       const dayDate = addDays(timelineStartDate, i);
                       const isToday = formatDateIso(dayDate) === TODAY_STR;
                       return (
-                        <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r border-jira-border/50 flex items-center justify-center text-[10px] ${isToday ? 'bg-blue-500/20 text-blue-400 font-bold' : 'text-slate-400'}`}>
-                          {dayDate.getDate()}
+                        <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r border-jira-border/50 flex flex-col items-center justify-center text-[10px] ${isToday ? 'bg-blue-500/20 text-blue-400 font-bold' : 'text-slate-400'}`}>
+                          <span className="text-[8px] uppercase">{dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span>
+                          <span>{dayDate.getDate()}</span>
                         </div>
                       );
                     })}
@@ -728,9 +789,8 @@
 
                     return (
                       <div key={person} className="flex border-b border-jira-border min-h-[72px]">
-                        {/* Avatar & Nom */}
                         <div className="w-60 p-4 border-r border-jira-border bg-jira-card flex items-center gap-3 shrink-0">
-                          <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs text-white">
+                          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center font-bold text-xs text-white">
                             {person.charAt(0)}
                           </div>
                           <div>
@@ -739,7 +799,6 @@
                           </div>
                         </div>
 
-                        {/* Timeline de la personne */}
                         <div className="flex-1 relative flex items-center">
                           <div className="absolute inset-0 flex pointer-events-none">
                             {Array.from({ length: TOTAL_TIMELINE_DAYS }).map((_, i) => (
@@ -759,11 +818,11 @@
                                     width: `${task.duration * columnWidth}px`
                                   }}
                                   onClick={() => setEditingTask(task)}
-                                  className={`absolute h-8 rounded bg-gradient-to-r ${task.project.color} px-2 flex items-center justify-between text-[10px] font-bold text-white shadow cursor-pointer hover:brightness-110 truncate border border-white/20`}
-                                  title={`${task.title} (${task.project.title})`}
+                                  className={`absolute h-8 rounded-lg bg-gradient-to-r ${task.project.color} px-2 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-pointer hover:brightness-110 truncate border border-white/20`}
+                                  title={`${task.title} (Projet: ${task.project.title})`}
                                 >
                                   <span className="truncate">{task.title}</span>
-                                  <span className="ml-1 opacity-80 text-[9px] font-mono">{task.duration}j</span>
+                                  <span className="ml-1 opacity-90 text-[9px] font-mono bg-black/30 px-1 py-0.5 rounded">{task.duration}j</span>
                                 </div>
                               );
                             })}
@@ -776,7 +835,7 @@
               </div>
             )}
 
-            {/* PANNEAU INSPECTEUR ET GESTION DES TÂCHES (À Droite en mode Roadmap) */}
+            {/* INSPECTEUR ET ÉDITION DE PROJET COMPLÈTE (Panneau de Droite en Mode Roadmap) */}
             {activeTab === 'roadmap' && selectedProject && (
               <div className="w-80 border-l border-jira-border bg-jira-card p-5 flex flex-col justify-between shrink-0 overflow-y-auto">
                 <div>
@@ -785,30 +844,36 @@
                       {selectedProject.category}
                     </span>
                     <button onClick={() => deleteProject(selectedProject.id)} className="text-xs text-rose-400 hover:text-rose-300">
-                      Supprimer Projet
+                      Supprimer
                     </button>
                   </div>
 
-                  <h2 className="text-sm font-bold text-slate-100 mb-4">{selectedProject.title}</h2>
+                  {/* Édition Directe du Titre du Projet */}
+                  <div className="mb-4">
+                    <label className="block text-[10px] text-slate-400 uppercase mb-1 font-semibold">Titre du Projet</label>
+                    <input 
+                      type="text" 
+                      value={selectedProject.title}
+                      onChange={e => handleUpdateProjectField(selectedProject.id, 'title', e.target.value)}
+                      className="w-full bg-jira-bg font-bold text-sm text-slate-100 p-2 rounded-lg border border-jira-border focus:border-blue-500"
+                    />
+                  </div>
 
-                  {/* Warning Box si la somme des tâches dépasse le projet */}
+                  {/* Avertissement Dépassement */}
                   {checkTasksOverflow(selectedProject) && (
                     <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
-                      ⚠️ <strong>Alerte :</strong> La durée cumulée des sous-tâches ({selectedProject.tasks.reduce((s, t) => s + Number(t.duration || 0), 0)}j) dépasse la durée du projet ({selectedProject.duration}j).
+                      ⚠️ <strong>Alerte :</strong> La durée cumulée des tâches ({selectedProject.tasks.reduce((s, t) => s + Number(t.duration || 0), 0)}j) dépasse la durée totale attribuée au projet ({selectedProject.duration}j).
                     </div>
                   )}
 
-                  {/* Édition rapide du Projet */}
+                  {/* Édition Paramètres Projet */}
                   <div className="space-y-3 bg-jira-bg p-3 rounded-xl border border-jira-border mb-6 text-xs">
                     <div>
-                      <label className="block text-[10px] text-slate-400 uppercase mb-1">Date de début du projet</label>
+                      <label className="block text-[10px] text-slate-400 uppercase mb-1">Date de début</label>
                       <input 
                         type="date" 
                         value={selectedProject.startDate}
-                        onChange={e => {
-                          const updated = projects.map(p => p.id === selectedProject.id ? { ...p, startDate: e.target.value } : p);
-                          broadcastProjects(updated);
-                        }}
+                        onChange={e => handleUpdateProjectField(selectedProject.id, 'startDate', e.target.value)}
                         className="w-full bg-jira-card border border-jira-border rounded p-1.5 text-slate-200"
                       />
                     </div>
@@ -819,10 +884,7 @@
                         <input 
                           type="number" min="1"
                           value={selectedProject.duration}
-                          onChange={e => {
-                            const updated = projects.map(p => p.id === selectedProject.id ? { ...p, duration: Number(e.target.value) } : p);
-                            broadcastProjects(updated);
-                          }}
+                          onChange={e => handleUpdateProjectField(selectedProject.id, 'duration', Number(e.target.value))}
                           className="w-full bg-jira-card border border-jira-border rounded p-1.5 text-slate-200"
                         />
                       </div>
@@ -830,10 +892,7 @@
                         <label className="block text-[10px] text-slate-400 uppercase mb-1">Couleur</label>
                         <select 
                           value={selectedProject.color}
-                          onChange={e => {
-                            const updated = projects.map(p => p.id === selectedProject.id ? { ...p, color: e.target.value } : p);
-                            broadcastProjects(updated);
-                          }}
+                          onChange={e => handleUpdateProjectField(selectedProject.id, 'color', e.target.value)}
                           className="w-full bg-jira-card border border-jira-border rounded p-1.5 text-slate-200"
                         >
                           {COLOR_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.name}</option>)}
@@ -842,7 +901,7 @@
                     </div>
                   </div>
 
-                  {/* Liste des Tâches du Projet */}
+                  {/* Liste & Ajout des Tâches du Projet */}
                   <div>
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
                       Tâches du Projet ({selectedProject.tasks?.length || 0})
@@ -850,7 +909,7 @@
 
                     <div className="space-y-2 mb-4">
                       {(selectedProject.tasks || []).map(task => (
-                        <div key={task.id} className="p-2.5 bg-jira-bg rounded-xl border border-jira-border flex items-center justify-between text-xs group">
+                        <div key={task.id} className="p-2.5 bg-jira-bg rounded-xl border border-jira-border flex items-center justify-between text-xs">
                           <div className="truncate pr-2">
                             <div className="font-semibold text-slate-200 truncate">{task.title}</div>
                             <div className="text-[10px] text-slate-400">👤 {task.assignee} ({task.duration}j)</div>
@@ -865,7 +924,7 @@
                       ))}
                     </div>
 
-                    {/* Formulaire ajout Tâche */}
+                    {/* Formulaire Nouvelle Tâche */}
                     <form onSubmit={handleAddTask} className="space-y-2 bg-jira-bg p-3 rounded-xl border border-jira-border">
                       <input 
                         type="text" placeholder="Titre de la tâche..." required
@@ -897,7 +956,7 @@
             )}
           </div>
 
-          {/* MODAL 1 : ÉDITION COMPLÈTE D'UNE TÂCHE */}
+          {/* MODAL 1 : ÉDITION ÉTENDUE D'UNE TÂCHE */}
           {editingTask && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-jira-card border border-jira-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
@@ -919,7 +978,7 @@
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Membre assigné</label>
+                      <label className="block text-xs text-slate-400 mb-1">Collaborateur assigné</label>
                       <input 
                         type="text" 
                         value={editingTask.assignee} 
@@ -969,7 +1028,7 @@
             </div>
           )}
 
-          {/* MODAL 2 : CONFIGURATION DISCRÈTE GITHUB */}
+          {/* MODAL 2 : CONFIGURATION GITHUB */}
           {isConfigModalOpen && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-jira-card border border-jira-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
