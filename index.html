@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jira Enterprise - Infinite Roadmap & Planning Pro</title>
+  <title>AuraPlan Studio - Operating System pour Projets & Planning</title>
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -13,11 +13,13 @@
       theme: {
         extend: {
           colors: {
-            jira: {
-              bg: '#0B0F19',
-              card: '#151C2C',
-              border: '#232D42',
-              accent: '#3B82F6'
+            aura: {
+              bg: '#080C14',
+              card: '#111827',
+              border: '#1F293D',
+              accent: '#6366F1',
+              cyan: '#06B6D4',
+              purple: '#A855F7'
             }
           }
         }
@@ -36,19 +38,19 @@
 
   <style>
     ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #0B0F19; }
-    ::-webkit-scrollbar-thumb { background: #232D42; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #3B82F6; }
+    ::-webkit-scrollbar-track { background: #080C14; }
+    ::-webkit-scrollbar-thumb { background: #1F293D; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #6366F1; }
     .dragging-active { cursor: grabbing !important; user-select: none !important; }
   </style>
 </head>
-<body class="bg-jira-bg text-slate-100 font-sans antialiased min-h-screen overflow-hidden selection:bg-blue-500/30">
+<body class="bg-aura-bg text-slate-100 font-sans antialiased min-h-screen overflow-hidden selection:bg-indigo-500/30">
   <div id="root"></div>
 
   <script type="text/babel">
     const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
-    // --- HELPERS UTILS & DATES ---
+    // --- HELPERS DATES & ENCODAGE ---
     const utf8_to_b64 = (str) => window.btoa(unescape(encodeURIComponent(str)));
     const b64_to_utf8 = (str) => decodeURIComponent(escape(window.atob(str)));
 
@@ -69,12 +71,12 @@
     ];
 
     const COLOR_OPTIONS = [
-      { name: 'Bleu Jira', value: 'from-blue-600 to-indigo-600' },
-      { name: 'Violet Cyber', value: 'from-purple-600 to-pink-600' },
-      { name: 'Émeraude Tech', value: 'from-emerald-600 to-teal-600' },
+      { name: 'Indigo Aura', value: 'from-indigo-600 to-violet-600' },
+      { name: 'Cyber Neon', value: 'from-purple-600 to-fuchsia-600' },
+      { name: 'Émeraude Deep', value: 'from-emerald-500 to-teal-600' },
       { name: 'Ambre Chaud', value: 'from-amber-500 to-orange-600' },
-      { name: 'Rose Néon', value: 'from-rose-600 to-red-600' },
-      { name: 'Cyan Futur', value: 'from-cyan-500 to-blue-500' }
+      { name: 'Rose Flash', value: 'from-rose-600 to-pink-600' },
+      { name: 'Cyan Futur', value: 'from-cyan-500 to-blue-600' }
     ];
 
     const TODAY_STR = formatDateIso(new Date());
@@ -83,72 +85,74 @@
     const INITIAL_PROJECTS = [
       {
         id: 'proj-1',
-        title: 'Refonte Architecture Cloud & K8s',
+        title: 'Refonte Microservices Cloud',
         category: 'Infrastructure',
         startDate: TODAY_STR,
         duration: 14,
-        color: 'from-blue-600 to-indigo-600',
+        color: 'from-indigo-600 to-violet-600',
         tasks: [
-          { id: 't-1-1', title: 'Provisionner clusters Terraform', assignee: 'Alexandre M.', startDate: TODAY_STR, duration: 4, status: 'DONE' },
-          { id: 't-1-2', title: 'Configuration Ingress Controller', assignee: 'Lucas R.', startDate: formatDateIso(addDays(new Date(), 4)), duration: 5, status: 'IN_PROGRESS' },
-          { id: 't-1-3', title: 'Migration Microservices Auth', assignee: 'Alexandre M.', startDate: formatDateIso(addDays(new Date(), 9)), duration: 6, status: 'TODO' }
+          { id: 't-1-1', title: 'Infra Terraform Cluster', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 3.5, status: 'DONE' },
+          { id: 't-1-2', title: 'Configuration Ingress & SSL', assignee: 'Lucas R.', startDate: formatDateIso(addDays(new Date(), 3)), slot: 'PM', duration: 4.5, status: 'IN_PROGRESS' },
+          { id: 't-1-3', title: 'Migration Gateway Auth', assignee: 'Alexandre M.', startDate: formatDateIso(addDays(new Date(), 8)), slot: 'AM', duration: 6, status: 'TODO' }
         ]
       },
       {
         id: 'proj-2',
-        title: 'Design System & UI Components',
+        title: 'Design System & UI React',
         category: 'Frontend',
         startDate: formatDateIso(addDays(new Date(), 2)),
         duration: 12,
-        color: 'from-purple-600 to-pink-600',
+        color: 'from-purple-600 to-fuchsia-600',
         tasks: [
-          { id: 't-2-1', title: 'Tokens de couleurs & Figma', assignee: 'Sophie T.', startDate: formatDateIso(addDays(new Date(), 2)), duration: 3, status: 'DONE' },
-          { id: 't-2-2', title: 'Composants Formulaires React', assignee: 'Sophie T.', startDate: formatDateIso(addDays(new Date(), 5)), duration: 6, status: 'IN_PROGRESS' }
+          { id: 't-2-1', title: 'Tokens Figma & Couleurs', assignee: 'Sophie T.', startDate: formatDateIso(addDays(new Date(), 2)), slot: 'AM', duration: 2.5, status: 'DONE' },
+          { id: 't-2-2', title: 'Composants Formulaires', assignee: 'Sophie T.', startDate: formatDateIso(addDays(new Date(), 4)), slot: 'PM', duration: 5, status: 'IN_PROGRESS' },
+          { id: 't-2-3', title: 'Tests Accessibilité WCAG', assignee: 'Sophie T.', startDate: formatDateIso(addDays(new Date(), 4)), slot: 'AM', duration: 3, status: 'TODO' } // Tâche parallèle
         ]
       },
       {
         id: 'proj-3',
-        title: 'Optimisation API & Cache Redis',
+        title: 'Optimisation API & Cache',
         category: 'Backend',
-        startDate: formatDateIso(addDays(new Date(), -3)),
+        startDate: formatDateIso(addDays(new Date(), -4)),
         duration: 10,
-        color: 'from-emerald-600 to-teal-600',
+        color: 'from-emerald-500 to-teal-600',
         tasks: [
-          { id: 't-3-1', title: 'Mise en place Redis Cache', assignee: 'Thomas L.', startDate: formatDateIso(addDays(new Date(), -3)), duration: 5, status: 'IN_REVIEW' }
+          { id: 't-3-1', title: 'Cluster Redis In-Memory', assignee: 'Thomas L.', startDate: formatDateIso(addDays(new Date(), -4)), slot: 'AM', duration: 4.5, status: 'IN_REVIEW' }
         ]
       }
     ];
 
-    function RoadmapApp() {
+    function AuraPlanApp() {
       // 1. États Généraux
       const [projects, setProjects] = useState(() => {
-        const saved = localStorage.getItem('jira_enterprise_projects_v4');
+        const saved = localStorage.getItem('auraplan_projects_v1');
         return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
       });
 
       const [activeTab, setActiveTab] = useState('roadmap'); // 'roadmap' | 'kanban' | 'planning'
       const [selectedProjectId, setSelectedProjectId] = useState('proj-1');
       const [editingTask, setEditingTask] = useState(null);
-      const [columnWidth, setColumnWidth] = useState(48);
-      const [extraTimelineDays, setExtraTimelineDays] = useState(30); // Buffer dynamique pour timeline infinie
+      const [splittingTask, setSplittingTask] = useState(null);
+      const [splitPart1Duration, setSplitPart1Duration] = useState(1);
+      const [columnWidth, setColumnWidth] = useState(52);
 
       // Kanban Drag & Ghosting
       const [draggingKanbanTaskId, setDraggingKanbanTaskId] = useState(null);
       const [dragOverColumn, setDragOverColumn] = useState(null);
 
-      // Modales & Configuration
+      // Modales & Config
       const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
       const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
       // Formulaires
       const [newProjectForm, setNewProjectForm] = useState({
-        title: '', category: 'Tech', startDate: TODAY_STR, duration: 10, color: 'from-blue-600 to-indigo-600'
+        title: '', category: 'Tech', startDate: TODAY_STR, duration: 10, color: 'from-indigo-600 to-violet-600'
       });
       const [newTaskForm, setNewTaskForm] = useState({
-        title: '', assignee: 'Alexandre M.', startDate: TODAY_STR, duration: 3, status: 'TODO'
+        title: '', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 2, status: 'TODO'
       });
 
-      // Drag State Engine
+      // Drag Engine State
       const [dragState, setDragState] = useState(null);
       const dragAnimRef = useRef(null);
 
@@ -161,31 +165,31 @@
       const [connectedPeers, setConnectedPeers] = useState(1);
       const yDocRef = useRef(null);
 
-      // --- CALCUL DYNAMIQUE DE LA TIMELINE INFINIE ---
+      // --- CALCUL DYNAMIQUE DE LA TIMELINE INFINIE & BORNES EXACTES ---
       const { timelineStartDate, totalTimelineDays } = useMemo(() => {
         let minDate = parseDate(TODAY_STR);
         let maxDate = addDays(parseDate(TODAY_STR), 30);
 
         projects.forEach(p => {
           const pStart = parseDate(p.startDate);
-          const pEnd = addDays(pStart, p.duration);
+          const pEnd = addDays(pStart, Math.ceil(p.duration));
           if (pStart < minDate) minDate = pStart;
           if (pEnd > maxDate) maxDate = pEnd;
 
           (p.tasks || []).forEach(t => {
             const tStart = parseDate(t.startDate || p.startDate);
-            const tEnd = addDays(tStart, t.duration);
+            const tEnd = addDays(tStart, Math.ceil(t.duration));
             if (tStart < minDate) minDate = tStart;
             if (tEnd > maxDate) maxDate = tEnd;
           });
         });
 
-        const start = addDays(minDate, -3);
-        const requiredDays = diffDays(maxDate, start) + extraTimelineDays;
-        return { timelineStartDate: start, totalTimelineDays: Math.max(60, requiredDays) };
-      }, [projects, extraTimelineDays]);
+        const start = addDays(minDate, -2);
+        const requiredDays = diffDays(maxDate, start) + 20; // Buffer automatique
+        return { timelineStartDate: start, totalTimelineDays: Math.max(45, requiredDays) };
+      }, [projects]);
 
-      // Calcul des Mois pour l'en-tête de calendrier
+      // Calcul des mois pour l'en-tête
       const timelineMonths = useMemo(() => {
         const monthsMap = [];
         let currentMonthKey = '';
@@ -219,7 +223,7 @@
         return list;
       }, [projects]);
 
-      // Liste unique des collaborateurs
+      // Collaborateurs uniques
       const collaborators = useMemo(() => {
         const set = new Set();
         allFlatTasks.forEach(t => { if (t.assignee) set.add(t.assignee); });
@@ -228,14 +232,14 @@
       }, [allFlatTasks]);
 
       // Persistance LocalStorage
-      useEffect(() => localStorage.setItem('jira_enterprise_projects_v4', JSON.stringify(projects)), [projects]);
+      useEffect(() => localStorage.setItem('auraplan_projects_v1', JSON.stringify(projects)), [projects]);
       useEffect(() => localStorage.setItem('gh_config', JSON.stringify(ghConfig)), [ghConfig]);
 
-      // Sync WebRTC (Yjs)
+      // Sync WebRTC P2P (Yjs)
       useEffect(() => {
         if (!window.Y || !window.YWebrtc) return;
         const ydoc = new window.Y.Doc();
-        const provider = new window.YWebrtc.WebrtcProvider('jira-enterprise-room-2026', ydoc);
+        const provider = new window.YWebrtc.WebrtcProvider('auraplan-studio-room-2026', ydoc);
         const yProjects = ydoc.getArray('projects');
 
         yProjects.observe(() => {
@@ -267,18 +271,18 @@
         return Math.round((doneCount / project.tasks.length) * 100);
       };
 
-      // HEALTH CHECK & DÉRIVE
+      // HEALTH CHECK
       const getProjectHealth = (project) => {
         if (!project.tasks || project.tasks.length === 0) {
           return { status: 'NEUTRAL', label: '⚪ Non planifié', delay: 0 };
         }
 
-        const projectTargetEnd = addDays(parseDate(project.startDate), project.duration - 1);
+        const projectTargetEnd = addDays(parseDate(project.startDate), Math.ceil(project.duration) - 1);
         let latestTaskEnd = parseDate(project.startDate);
 
         project.tasks.forEach(t => {
           const tStart = parseDate(t.startDate || project.startDate);
-          const tEnd = addDays(tStart, (t.duration || 1) - 1);
+          const tEnd = addDays(tStart, Math.ceil(t.duration || 1) - 1);
           if (tEnd > latestTaskEnd) latestTaskEnd = tEnd;
         });
 
@@ -293,17 +297,17 @@
         }
       };
 
-      // ACTION : ALIGNER LA ROADMAP
+      // RE-BASELINER
       const rebaselineProject = (projectId) => {
         const proj = projects.find(p => p.id === projectId);
         if (!proj || !proj.tasks || proj.tasks.length === 0) return;
 
         let earliestStart = parseDate(proj.tasks[0].startDate || proj.startDate);
-        let latestEnd = addDays(earliestStart, proj.tasks[0].duration - 1);
+        let latestEnd = addDays(earliestStart, Math.ceil(proj.tasks[0].duration) - 1);
 
         proj.tasks.forEach(t => {
           const tStart = parseDate(t.startDate || proj.startDate);
-          const tEnd = addDays(tStart, (t.duration || 1) - 1);
+          const tEnd = addDays(tStart, Math.ceil(t.duration || 1) - 1);
           if (tStart < earliestStart) earliestStart = tStart;
           if (tEnd > latestEnd) latestEnd = tEnd;
         });
@@ -315,7 +319,37 @@
         broadcastProjects(updated);
       };
 
-      // ENGINE DRAG & RESIZE HIGH-PERFORMANCE
+      // ALGORITHME DE SUPERPOSITION INTEL (MULTI-TÂCHES PAR COLLABORATEUR)
+      const calculateCollaboratorLanes = (personTasks) => {
+        // Trie les tâches par date de début
+        const sorted = [...personTasks].sort((a, b) => {
+          const tA = parseDate(a.startDate || a.project.startDate).getTime() + (a.slot === 'PM' ? 43200000 : 0);
+          const tB = parseDate(b.startDate || b.project.startDate).getTime() + (b.slot === 'PM' ? 43200000 : 0);
+          return tA - tB;
+        });
+
+        const lanes = []; // Tableau contenant le timestamp de fin libre de chaque ligne
+
+        const placedTasks = sorted.map(task => {
+          const startDays = diffDays(parseDate(task.startDate || task.project.startDate), timelineStartDate) + (task.slot === 'PM' ? 0.5 : 0);
+          const endDays = startDays + Number(task.duration);
+
+          // Trouve la première ligne libre
+          let laneIndex = lanes.findIndex(freeDay => freeDay <= startDays);
+          if (laneIndex === -1) {
+            laneIndex = lanes.length;
+            lanes.push(endDays);
+          } else {
+            lanes[laneIndex] = endDays;
+          }
+
+          return { ...task, laneIndex, startDays, endDays };
+        });
+
+        return { placedTasks, totalLanes: Math.max(1, lanes.length) };
+      };
+
+      // ENGINE DRAG & RESIZE FLUIDE
       const handleMouseDown = (e, projectId, action) => {
         e.stopPropagation();
         e.preventDefault();
@@ -352,12 +386,6 @@
               newDur = Math.max(1, dragState.initialDuration + dayDelta);
             }
 
-            // AUTO-EXTENSION TIMELINE INFINIE PANDANT LE GLISSEMENT
-            const endOffset = diffDays(parseDate(newStart), timelineStartDate) + newDur;
-            if (endOffset > totalTimelineDays - 10) {
-              setExtraTimelineDays(prev => prev + 15);
-            }
-
             setDragState(prev => prev ? { ...prev, currentStartDate: newStart, currentDuration: newDur } : null);
           });
         };
@@ -378,9 +406,9 @@
           window.removeEventListener('mousemove', handleMouseMove);
           window.removeEventListener('mouseup', handleMouseUp);
         };
-      }, [dragState, columnWidth, projects, timelineStartDate, totalTimelineDays, broadcastProjects]);
+      }, [dragState, columnWidth, projects, broadcastProjects]);
 
-      // KANBAN DRAG & GHOSTING HANDLERS
+      // KANBAN DRAG & DROP GHOSTING
       const handleKanbanDragStart = (e, taskId) => {
         setDraggingKanbanTaskId(taskId);
         e.dataTransfer.setData('text/plain', taskId);
@@ -406,76 +434,88 @@
         broadcastProjects(updatedProjects);
       };
 
-      // ACTION : SCINDER UNE TÂCHE (SPLIT TASK)
-      const splitTask = (taskId) => {
-        const targetTask = allFlatTasks.find(t => t.id === taskId);
-        if (!targetTask || targetTask.duration <= 1) {
-          alert("Une tâche doit durer au moins 2 jours pour être scindée.");
-          return;
-        }
-
-        const splitAt = Math.floor(targetTask.duration / 2);
-        const durationPart1 = splitAt;
-        const durationPart2 = targetTask.duration - splitAt;
-
-        const task1 = { ...targetTask, duration: durationPart1 };
-        const task2 = {
-          id: `t-${targetTask.project.id}-${Date.now()}`,
-          title: `${targetTask.title} (Partie 2)`,
-          assignee: targetTask.assignee,
-          startDate: formatDateIso(addDays(parseDate(targetTask.startDate), durationPart1)),
-          duration: durationPart2,
-          status: targetTask.status
-        };
-
-        const updatedProjects = projects.map(p => {
-          if (p.id !== targetTask.project.id) return p;
-          const newTasks = [];
-          p.tasks.forEach(t => {
-            if (t.id === taskId) {
-              newTasks.push(task1, task2);
-            } else {
-              newTasks.push(t);
-            }
-          });
-          return { ...p, tasks: newTasks };
-        });
-
-        broadcastProjects(updatedProjects);
-        setEditingTask(null);
-      };
-
-      // VUE D'ENSEMBLE INTEGRALE (FIT ALL EXACT)
+      // VUE D'ENSEMBLE INTEGRALE (FIT ALL ULTIME PARTOUT)
       const fitAllTasks = () => {
-        const container = document.getElementById('gantt-container');
+        const container = document.getElementById('timeline-viewport');
         if (!container) return;
 
         let earliest = parseDate(TODAY_STR);
-        let latest = addDays(parseDate(TODAY_STR), 30);
+        let latest = addDays(parseDate(TODAY_STR), 15);
 
         projects.forEach(p => {
           const pStart = parseDate(p.startDate);
-          const pEnd = addDays(pStart, p.duration);
+          const pEnd = addDays(pStart, Math.ceil(p.duration));
           if (pStart < earliest) earliest = pStart;
           if (pEnd > latest) latest = pEnd;
 
           (p.tasks || []).forEach(t => {
             const tStart = parseDate(t.startDate || p.startDate);
-            const tEnd = addDays(tStart, t.duration);
+            const tEnd = addDays(tStart, Math.ceil(t.duration));
             if (tStart < earliest) earliest = tStart;
             if (tEnd > latest) latest = tEnd;
           });
         });
 
-        const spanDays = diffDays(latest, earliest) + 6;
-        const calculatedWidth = Math.max(20, Math.floor(container.clientWidth / spanDays));
-        setColumnWidth(calculatedWidth);
+        const spanDays = diffDays(latest, earliest) + 4;
+        const availableWidth = container.clientWidth - 10;
+        const calculatedWidth = Math.max(12, Math.floor(availableWidth / spanDays));
 
-        // Reset scroll to left
+        setColumnWidth(calculatedWidth);
         container.scrollLeft = 0;
       };
 
-      // PROJETS & TÂCHES UPDATES
+      // SCISSION DE TÂCHE AVANCÉE
+      const openSplitModal = (task) => {
+        if (task.duration <= 0.5) {
+          alert("Une tâche de 0.5 jour ne peut pas être découpée davantage.");
+          return;
+        }
+        setSplittingTask(task);
+        setSplitPart1Duration(Math.max(0.5, Number((task.duration / 2).toFixed(1))));
+      };
+
+      const executeSplitTask = (e) => {
+        e.preventDefault();
+        if (!splittingTask) return;
+
+        const p1Dur = Number(splitPart1Duration);
+        const p2Dur = Number((splittingTask.duration - p1Dur).toFixed(1));
+
+        if (p2Dur <= 0) {
+          alert("La durée de la 2nde partie doit être supérieure à 0.");
+          return;
+        }
+
+        const task1 = { ...splittingTask, duration: p1Dur };
+        const p1EndDays = parseDate(splittingTask.startDate);
+        const p2Start = formatDateIso(addDays(p1EndDays, Math.floor(p1Dur)));
+
+        const task2 = {
+          id: `t-${splittingTask.project.id}-${Date.now()}`,
+          title: `${splittingTask.title} (Partie 2)`,
+          assignee: splittingTask.assignee,
+          startDate: p2Start,
+          slot: (p1Dur % 1 !== 0) ? (splittingTask.slot === 'AM' ? 'PM' : 'AM') : splittingTask.slot,
+          duration: p2Dur,
+          status: splittingTask.status
+        };
+
+        const updatedProjects = projects.map(p => {
+          if (p.id !== splittingTask.project.id) return p;
+          const newTasks = [];
+          p.tasks.forEach(t => {
+            if (t.id === splittingTask.id) newTasks.push(task1, task2);
+            else newTasks.push(t);
+          });
+          return { ...p, tasks: newTasks };
+        });
+
+        broadcastProjects(updatedProjects);
+        setSplittingTask(null);
+        setEditingTask(null);
+      };
+
+      // GESTION PROJETS & TÂCHES
       const handleUpdateProjectField = (projId, field, value) => {
         const updated = projects.map(p => p.id === projId ? { ...p, [field]: value } : p);
         broadcastProjects(updated);
@@ -514,6 +554,7 @@
                 title: newTaskForm.title.trim(),
                 assignee: newTaskForm.assignee || 'Alexandre M.',
                 startDate: newTaskForm.startDate || proj.startDate,
+                slot: newTaskForm.slot || 'AM',
                 duration: Number(newTaskForm.duration) || 1,
                 status: newTaskForm.status || 'TODO'
               }
@@ -522,7 +563,7 @@
         });
 
         broadcastProjects(updated);
-        setNewTaskForm({ title: '', assignee: 'Alexandre M.', startDate: TODAY_STR, duration: 3, status: 'TODO' });
+        setNewTaskForm({ title: '', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 2, status: 'TODO' });
       };
 
       const handleUpdateTask = (updatedTask) => {
@@ -551,7 +592,7 @@
         }
       };
 
-      // SAUVEGARDE GITHUB API
+      // SAUVEGARDE GITHUB REST API
       const saveToGitHub = async () => {
         if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) {
           alert("Veuillez renseigner vos identifiants dans ⚙️ Config GitHub");
@@ -570,7 +611,7 @@
             method: 'PUT',
             headers: { ...headers, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              message: `Update Roadmap ${new Date().toLocaleString('fr-FR')}`,
+              message: `Update AuraPlan ${new Date().toLocaleString('fr-FR')}`,
               content: utf8_to_b64(JSON.stringify(projects, null, 2)),
               ...(currentSha && { sha: currentSha })
             })
@@ -590,82 +631,88 @@
       return (
         <div className={`flex flex-col h-screen overflow-hidden ${dragState ? 'dragging-active' : ''}`}>
           
-          {/* HEADER PRINCIPAL */}
-          <header className="bg-jira-card border-b border-jira-border px-6 py-3 flex items-center justify-between shrink-0">
+          {/* BRANDING HEADER */}
+          <header className="bg-aura-card border-b border-aura-border px-6 py-3 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center font-black text-white text-lg tracking-wider">J</div>
-                <h1 className="text-base font-bold text-slate-100">Jira Enterprise</h1>
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center font-black text-white text-lg tracking-wider shadow-lg shadow-indigo-500/20">
+                  Δ
+                </div>
+                <h1 className="text-base font-bold bg-gradient-to-r from-white via-slate-200 to-indigo-300 bg-clip-text text-transparent">
+                  AuraPlan <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">Studio OS</span>
+                </h1>
               </div>
 
-              <div className="flex bg-jira-bg p-1 rounded-xl border border-jira-border text-xs font-semibold">
+              {/* Navigation des 3 Vues */}
+              <div className="flex bg-aura-bg p-1 rounded-xl border border-aura-border text-xs font-semibold">
                 <button 
                   onClick={() => setActiveTab('roadmap')}
-                  className={`px-4 py-1.5 rounded-lg transition ${activeTab === 'roadmap' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-4 py-1.5 rounded-lg transition ${activeTab === 'roadmap' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-white'}`}
                 >
                   📊 Roadmap Macro
                 </button>
                 <button 
                   onClick={() => setActiveTab('kanban')}
-                  className={`px-4 py-1.5 rounded-lg transition ${activeTab === 'kanban' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-4 py-1.5 rounded-lg transition ${activeTab === 'kanban' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-white'}`}
                 >
                   📋 Kanban Tâches
                 </button>
                 <button 
                   onClick={() => setActiveTab('planning')}
-                  className={`px-4 py-1.5 rounded-lg transition ${activeTab === 'planning' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-4 py-1.5 rounded-lg transition ${activeTab === 'planning' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-white'}`}
                 >
-                  👥 Planning Collaborateurs
+                  👥 Planning Collaborateurs (0.5j)
                 </button>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-jira-bg border border-jira-border text-xs text-emerald-400">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-aura-bg border border-aura-border text-xs text-emerald-400 font-medium">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>{connectedPeers} en direct</span>
+                <span>{connectedPeers} P2P Direct</span>
               </div>
 
               <button 
                 onClick={() => setIsConfigModalOpen(true)}
-                className="px-3 py-2 bg-jira-bg hover:bg-slate-800 text-slate-200 border border-jira-border text-xs font-semibold rounded-xl transition"
+                className="px-3 py-2 bg-aura-bg hover:bg-slate-800 text-slate-200 border border-aura-border text-xs font-semibold rounded-xl transition"
               >
                 ⚙️ Config GitHub
               </button>
 
               <button 
                 onClick={() => setIsProjectModalOpen(true)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl transition shadow-lg shadow-blue-600/20"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-lg shadow-indigo-600/25"
               >
                 + Nouveau Projet
               </button>
             </div>
           </header>
 
-          {/* TOOLBAR ZOOM & VUE D'ENSEMBLE */}
-          <div className="bg-slate-900/90 border-b border-jira-border px-6 py-2 flex items-center justify-between text-xs text-slate-400 shrink-0">
+          {/* TOOLBAR (FIT ALL & ZOOM PARTOUT) */}
+          <div className="bg-slate-900/90 border-b border-aura-border px-6 py-2 flex items-center justify-between text-xs text-slate-400 shrink-0">
             <div className="flex items-center gap-3">
               <span className="font-semibold text-slate-300">Timeline Infinie :</span>
-              <span className="text-[10px] text-slate-400 font-mono bg-jira-bg px-2 py-0.5 rounded border border-jira-border">
-                {totalTimelineDays} jours affichés (extensible au glissement)
+              <span className="text-[10px] text-slate-300 font-mono bg-aura-bg px-2.5 py-1 rounded-lg border border-aura-border">
+                {totalTimelineDays} jours calculés (précision 0.5j)
               </span>
-              {syncStatus && <span className="font-medium text-blue-400">{syncStatus}</span>}
+              {syncStatus && <span className="font-medium text-indigo-400">{syncStatus}</span>}
             </div>
 
-            {/* Zoom Slider & Vue d'ensemble */}
             {activeTab !== 'kanban' && (
-              <div className="flex items-center gap-3">
-                <span className="font-semibold text-slate-300">Zoom :</span>
-                <input 
-                  type="range" min="18" max="120" value={columnWidth} 
-                  onChange={e => setColumnWidth(Number(e.target.value))}
-                  className="w-32 accent-blue-500 cursor-pointer"
-                />
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-300">Zoom :</span>
+                  <input 
+                    type="range" min="12" max="130" value={columnWidth} 
+                    onChange={e => setColumnWidth(Number(e.target.value))}
+                    className="w-32 accent-indigo-500 cursor-pointer"
+                  />
+                </div>
                 <button 
                   onClick={fitAllTasks}
-                  className="px-3 py-1 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 font-semibold rounded-lg transition"
+                  className="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-bold rounded-xl transition shadow"
                 >
-                  🔍 Vue d'ensemble (Fit All)
+                  🔍 Vue d'ensemble Globale (Fit All)
                 </button>
               </div>
             )}
@@ -674,17 +721,17 @@
           {/* MAIN CONTENT AREA */}
           <div className="flex-1 flex overflow-hidden">
 
-            {/* VUE 1 : ROADMAP MACRO (CIBLES VS DÉRIVE RÉELLE) */}
+            {/* VUE 1 : ROADMAP MACRO */}
             {activeTab === 'roadmap' && (
               <>
                 {/* Left Sidebar: Projets */}
-                <div className="w-80 border-r border-jira-border bg-jira-card flex flex-col shrink-0">
-                  <div className="h-16 border-b border-jira-border px-4 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
-                    <span>Projets Cibles ({projects.length})</span>
-                    <span>Santé / Dérive</span>
+                <div className="w-80 border-r border-aura-border bg-aura-card flex flex-col shrink-0">
+                  <div className="h-16 border-b border-aura-border px-4 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
+                    <span>Projets ({projects.length})</span>
+                    <span>Santé / Avancement</span>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto divide-y divide-jira-border/50">
+                  <div className="flex-1 overflow-y-auto divide-y divide-aura-border/50">
                     {projects.map(proj => {
                       const pct = getProjectProgress(proj);
                       const health = getProjectHealth(proj);
@@ -695,7 +742,7 @@
                           key={proj.id}
                           onClick={() => setSelectedProjectId(proj.id)}
                           className={`h-16 px-4 flex items-center justify-between cursor-pointer transition-colors ${
-                            isSelected ? 'bg-blue-600/10 border-l-4 border-blue-500' : 'hover:bg-slate-800/40'
+                            isSelected ? 'bg-indigo-600/10 border-l-4 border-indigo-500' : 'hover:bg-slate-800/40'
                           }`}
                         >
                           <div className="truncate pr-2">
@@ -704,14 +751,14 @@
                               <span className="text-xs font-semibold text-slate-200 truncate">{proj.title}</span>
                             </div>
                             <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
-                              <span>Cible: {formatDateFr(proj.startDate)}</span>
+                              <span>Du {formatDateFr(proj.startDate)}</span>
                               <span>•</span>
                               <span>{proj.duration}j</span>
                             </div>
                           </div>
 
                           <div className="flex flex-col items-end gap-1">
-                            <span className="text-[10px] font-mono font-bold text-blue-400">{pct}%</span>
+                            <span className="text-[10px] font-mono font-extrabold text-indigo-400">{pct}%</span>
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
                               health.status === 'DANGER' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                             }`}>
@@ -724,16 +771,16 @@
                   </div>
                 </div>
 
-                {/* Right Timeline: Gantt Cibles Roadmap */}
-                <div id="gantt-container" className="flex-1 flex flex-col overflow-x-auto bg-jira-bg relative">
+                {/* Right Timeline Viewport */}
+                <div id="timeline-viewport" className="flex-1 flex flex-col overflow-x-auto bg-aura-bg relative">
                   
                   {/* En-tête Mois */}
-                  <div className="h-6 border-b border-jira-border flex bg-slate-900/90 sticky top-0 z-20" style={{ width: `${totalTimelineDays * columnWidth}px` }}>
+                  <div className="h-6 border-b border-aura-border flex bg-slate-900/90 sticky top-0 z-20" style={{ width: `${totalTimelineDays * columnWidth}px` }}>
                     {timelineMonths.map((m, idx) => (
                       <div 
                         key={idx} 
                         style={{ width: `${m.daysCount * columnWidth}px` }}
-                        className="h-full border-r border-jira-border text-[11px] font-bold text-slate-300 flex items-center justify-center uppercase tracking-wider bg-slate-900/90"
+                        className="h-full border-r border-aura-border text-[11px] font-bold text-slate-300 flex items-center justify-center uppercase tracking-wider bg-slate-900/90"
                       >
                         {m.name}
                       </div>
@@ -741,7 +788,7 @@
                   </div>
 
                   {/* En-tête Jours */}
-                  <div className="h-10 border-b border-jira-border flex items-center shrink-0 bg-slate-900/60 sticky top-6 z-10" style={{ width: `${totalTimelineDays * columnWidth}px` }}>
+                  <div className="h-10 border-b border-aura-border flex items-center shrink-0 bg-slate-900/60 sticky top-6 z-10" style={{ width: `${totalTimelineDays * columnWidth}px` }}>
                     {Array.from({ length: totalTimelineDays }).map((_, i) => {
                       const dayDate = addDays(timelineStartDate, i);
                       const dayStr = formatDateIso(dayDate);
@@ -752,8 +799,8 @@
                         <div 
                           key={i}
                           style={{ width: `${columnWidth}px` }}
-                          className={`h-full border-r border-jira-border/60 flex flex-col justify-center items-center text-[10px] ${
-                            isToday ? 'bg-blue-500/20 text-blue-400 font-bold border-b-2 border-blue-500' : isWeekend ? 'bg-slate-950/40 text-slate-600' : 'text-slate-400'
+                          className={`h-full border-r border-aura-border/60 flex flex-col justify-center items-center text-[10px] ${
+                            isToday ? 'bg-indigo-500/20 text-indigo-400 font-bold border-b-2 border-indigo-500' : isWeekend ? 'bg-slate-950/40 text-slate-600' : 'text-slate-400'
                           }`}
                         >
                           <span className="uppercase text-[9px] text-slate-500">{dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span>
@@ -767,7 +814,7 @@
                   <div className="flex-1 relative" style={{ width: `${totalTimelineDays * columnWidth}px` }}>
                     <div className="absolute inset-0 flex pointer-events-none">
                       {Array.from({ length: totalTimelineDays }).map((_, i) => (
-                        <div key={i} style={{ width: `${columnWidth}px` }} className="h-full border-r border-jira-border/20" />
+                        <div key={i} style={{ width: `${columnWidth}px` }} className="h-full border-r border-aura-border/20" />
                       ))}
                     </div>
 
@@ -779,13 +826,12 @@
 
                         const offsetDays = diffDays(parseDate(displayStart), timelineStartDate);
                         const isSelected = proj.id === selectedProjectId;
-                        const endDateStr = formatDateIso(addDays(parseDate(displayStart), displayDur - 1));
+                        const endDateStr = formatDateIso(addDays(parseDate(displayStart), Math.ceil(displayDur) - 1));
                         const pct = getProjectProgress(proj);
 
                         return (
-                          <div key={proj.id} className="h-16 border-b border-jira-border/40 relative flex items-center">
+                          <div key={proj.id} className="h-16 border-b border-aura-border/40 relative flex items-center">
                             
-                            {/* CONTENEUR DU BLOC DE PROJET */}
                             <div
                               style={{
                                 left: `${offsetDays * columnWidth}px`,
@@ -793,23 +839,23 @@
                               }}
                               onMouseDown={(e) => handleMouseDown(e, proj.id, 'move')}
                               onClick={() => setSelectedProjectId(proj.id)}
-                              className={`absolute h-11 rounded-lg bg-slate-950/90 shadow-2xl cursor-grab active:cursor-grabbing flex items-center justify-between group border border-slate-700 overflow-hidden select-none ${
-                                isSelected ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-jira-bg' : ''
+                              className={`absolute h-11 rounded-xl bg-slate-950 shadow-2xl cursor-grab active:cursor-grabbing flex items-center justify-between group border border-slate-700 overflow-hidden select-none backdrop-blur ${
+                                isSelected ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-aura-bg' : ''
                               }`}
                             >
-                              {/* BARRE DE PROGRESSION EN COULEUR VIVE (%) */}
+                              {/* BARRE DE Remplissage DE PROGRESSION (%) ULTRA LISIBLE */}
                               <div 
-                                className={`absolute top-0 bottom-0 left-0 bg-gradient-to-r ${proj.color} transition-all duration-300 shadow-lg`}
+                                className={`absolute top-0 bottom-0 left-0 bg-gradient-to-r ${proj.color} opacity-90 transition-all duration-300 shadow-lg`}
                                 style={{ width: `${pct}%` }}
                               />
 
                               {/* Poignée Gauche */}
                               <div onMouseDown={(e) => handleMouseDown(e, proj.id, 'resize-left')} className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/30 opacity-0 group-hover:opacity-100 z-20 hover:bg-white/70" />
                               
-                              {/* Label avec Titre + % Très Lisible */}
+                              {/* Label avec Titre + % Contrasté */}
                               <div className="truncate px-3 pointer-events-none flex items-center justify-between w-full z-10">
-                                <span className="text-xs font-extrabold text-white truncate drop-shadow-md">{proj.title}</span>
-                                <span className="text-[11px] text-white font-mono font-extrabold ml-2 bg-slate-950/80 px-2 py-0.5 rounded border border-white/20 shadow">
+                                <span className="text-xs font-black text-white truncate drop-shadow">{proj.title}</span>
+                                <span className="text-[11px] text-white font-mono font-black ml-2 bg-slate-950/90 px-2 py-0.5 rounded-lg border border-white/20 shadow-lg">
                                   {pct}% ({displayDur}j)
                                 </span>
                               </div>
@@ -819,8 +865,8 @@
 
                               {/* Tooltip Survol */}
                               {isDraggingThis && (
-                                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 border border-blue-500 text-slate-100 text-[10px] font-mono px-3 py-1 rounded-lg shadow-2xl z-30 whitespace-nowrap">
-                                  📅 Cible: {formatDateFr(displayStart)} → {formatDateFr(endDateStr)} ({displayDur}j)
+                                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500 text-slate-100 text-[10px] font-mono px-3 py-1 rounded-lg shadow-2xl z-30 whitespace-nowrap">
+                                  📅 {formatDateFr(displayStart)} → {formatDateFr(endDateStr)} ({displayDur}j)
                                 </div>
                               )}
                             </div>
@@ -833,13 +879,13 @@
               </>
             )}
 
-            {/* VUE 2 : TABLEAU KANBAN AVEC GHOSTING DRAG & DROP */}
+            {/* VUE 2 : KANBAN AVEC GHOSTING DRAG & DROP */}
             {activeTab === 'kanban' && (
-              <div className="flex-1 p-6 bg-jira-bg overflow-x-auto">
+              <div className="flex-1 p-6 bg-aura-bg overflow-x-auto">
                 <div className="grid grid-cols-4 gap-6 min-w-[1100px] h-full">
                   {[
                     { id: 'TODO', title: 'À faire', color: 'border-slate-600' },
-                    { id: 'IN_PROGRESS', title: 'En cours', color: 'border-blue-500' },
+                    { id: 'IN_PROGRESS', title: 'En cours', color: 'border-indigo-500' },
                     { id: 'IN_REVIEW', title: 'En revue', color: 'border-purple-500' },
                     { id: 'DONE', title: 'Terminé', color: 'border-emerald-500' }
                   ].map(col => {
@@ -851,13 +897,13 @@
                         key={col.id} 
                         onDragOver={e => handleKanbanDragOver(e, col.id)}
                         onDrop={e => handleKanbanDrop(e, col.id)}
-                        className={`bg-jira-card border rounded-2xl p-4 flex flex-col h-full transition-all ${
-                          isOver ? 'border-blue-500 bg-blue-500/10 ring-2 ring-blue-500/30' : 'border-jira-border'
+                        className={`bg-aura-card border rounded-2xl p-4 flex flex-col h-full transition-all ${
+                          isOver ? 'border-indigo-500 bg-indigo-500/10 ring-2 ring-indigo-500/30' : 'border-aura-border'
                         }`}
                       >
                         <div className={`flex items-center justify-between border-b-2 ${col.color} pb-3 mb-4`}>
                           <h3 className="font-bold text-sm text-slate-200">{col.title}</h3>
-                          <span className="text-xs font-mono bg-jira-bg border border-jira-border px-2 py-0.5 rounded-full text-slate-400">
+                          <span className="text-xs font-mono bg-aura-bg border border-aura-border px-2 py-0.5 rounded-full text-slate-400">
                             {colTasks.length}
                           </span>
                         </div>
@@ -871,8 +917,8 @@
                                 key={task.id}
                                 draggable
                                 onDragStart={e => handleKanbanDragStart(e, task.id)}
-                                className={`bg-jira-bg border border-jira-border hover:border-slate-500 p-4 rounded-xl shadow-lg transition flex flex-col justify-between gap-3 group cursor-grab active:cursor-grabbing ${
-                                  isBeingDragged ? 'opacity-30 border-dashed border-blue-400 scale-95' : ''
+                                className={`bg-aura-bg border border-aura-border hover:border-slate-500 p-4 rounded-xl shadow-lg transition flex flex-col justify-between gap-3 group cursor-grab active:cursor-grabbing ${
+                                  isBeingDragged ? 'opacity-30 border-dashed border-indigo-400 scale-95' : ''
                                 }`}
                               >
                                 <div>
@@ -882,19 +928,21 @@
                                     </span>
                                     <button 
                                       onClick={() => setEditingTask(task)} 
-                                      className="text-[10px] text-blue-400 hover:underline opacity-0 group-hover:opacity-100 transition"
+                                      className="text-[10px] text-indigo-400 hover:underline opacity-0 group-hover:opacity-100 transition"
                                     >
                                       Éditer
                                     </button>
                                   </div>
 
                                   <h4 className="text-xs font-bold text-slate-100 mb-1">{task.title}</h4>
-                                  <p className="text-[10px] text-slate-400">📅 Du {formatDateFr(task.startDate)} ({task.duration}j)</p>
+                                  <p className="text-[10px] text-slate-400">
+                                    📅 {formatDateFr(task.startDate)} ({task.slot || 'AM'}) • {task.duration}j
+                                  </p>
                                 </div>
 
-                                <div className="flex items-center justify-between pt-2 border-t border-jira-border/50 text-[10px] text-slate-400">
+                                <div className="flex items-center justify-between pt-2 border-t border-aura-border/50 text-[10px] text-slate-400">
                                   <span className="font-semibold text-slate-300">👤 {task.assignee}</span>
-                                  <span className="font-mono bg-jira-card px-1.5 py-0.5 rounded border border-jira-border">
+                                  <span className="font-mono bg-aura-card px-1.5 py-0.5 rounded border border-aura-border">
                                     Glisser ⠿
                                   </span>
                                 </div>
@@ -909,18 +957,18 @@
               </div>
             )}
 
-            {/* VUE 3 : PLANNING COLLABORATEUR AVEC TIMELINE INFINIE ET OPTION DE SCISSION */}
+            {/* VUE 3 : PLANNING COLLABORATEUR (MULTI-TÂCHES EMPILÉES + DEMI-JOURNÉES 0.5J) */}
             {activeTab === 'planning' && (
-              <div className="flex-1 flex flex-col overflow-x-auto bg-jira-bg">
+              <div id="timeline-viewport" className="flex-1 flex flex-col overflow-x-auto bg-aura-bg">
                 {/* Header Calendrier */}
-                <div className="h-10 border-b border-jira-border flex items-center shrink-0 bg-slate-900/80 sticky top-0 z-10" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
-                  <div className="w-60 px-4 font-bold text-xs text-slate-400 border-r border-jira-border">Collaborateurs</div>
+                <div className="h-10 border-b border-aura-border flex items-center shrink-0 bg-slate-900/80 sticky top-0 z-10" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
+                  <div className="w-60 px-4 font-bold text-xs text-slate-400 border-r border-aura-border">Collaborateurs</div>
                   <div className="flex-1 flex">
                     {Array.from({ length: totalTimelineDays }).map((_, i) => {
                       const dayDate = addDays(timelineStartDate, i);
                       const isToday = formatDateIso(dayDate) === TODAY_STR;
                       return (
-                        <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r border-jira-border/50 flex flex-col items-center justify-center text-[10px] ${isToday ? 'bg-blue-500/20 text-blue-400 font-bold' : 'text-slate-400'}`}>
+                        <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r border-aura-border/50 flex flex-col items-center justify-center text-[10px] ${isToday ? 'bg-indigo-500/20 text-indigo-400 font-bold' : 'text-slate-400'}`}>
                           <span className="text-[8px] uppercase">{dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span>
                           <span>{dayDate.getDate()}</span>
                         </div>
@@ -929,15 +977,18 @@
                   </div>
                 </div>
 
-                {/* Planning par Collaborateur */}
+                {/* Planning Collaborateurs */}
                 <div className="flex-1 overflow-y-auto" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   {collaborators.map(person => {
                     const personTasks = allFlatTasks.filter(t => t.assignee === person);
+                    const { placedTasks, totalLanes } = calculateCollaboratorLanes(personTasks);
+                    const rowHeight = Math.max(72, totalLanes * 38 + 16);
 
                     return (
-                      <div key={person} className="flex border-b border-jira-border min-h-[72px]">
-                        <div className="w-60 p-4 border-r border-jira-border bg-jira-card flex items-center gap-3 shrink-0">
-                          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center font-bold text-xs text-white">
+                      <div key={person} style={{ height: `${rowHeight}px` }} className="flex border-b border-aura-border transition-all">
+                        {/* Avatar & Nom */}
+                        <div className="w-60 p-4 border-r border-aura-border bg-aura-card flex items-center gap-3 shrink-0">
+                          <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-xs text-white shadow">
                             {person.charAt(0)}
                           </div>
                           <div>
@@ -946,31 +997,36 @@
                           </div>
                         </div>
 
+                        {/* Zone Timeline des Tâches Empilées */}
                         <div className="flex-1 relative flex items-center">
                           <div className="absolute inset-0 flex pointer-events-none">
                             {Array.from({ length: totalTimelineDays }).map((_, i) => (
-                              <div key={i} style={{ width: `${columnWidth}px` }} className="h-full border-r border-jira-border/20" />
+                              <div key={i} style={{ width: `${columnWidth}px` }} className="h-full border-r border-aura-border/20" />
                             ))}
                           </div>
 
-                          <div className="relative w-full h-full flex items-center">
-                            {personTasks.map(task => {
-                              const tStart = parseDate(task.startDate || task.project.startDate);
-                              const taskOffsetDays = diffDays(tStart, timelineStartDate);
+                          <div className="relative w-full h-full">
+                            {placedTasks.map(task => {
+                              const leftPx = task.startDays * columnWidth;
+                              const widthPx = task.duration * columnWidth;
+                              const topPx = task.laneIndex * 38 + 10;
 
                               return (
                                 <div
                                   key={task.id}
                                   style={{
-                                    left: `${taskOffsetDays * columnWidth}px`,
-                                    width: `${task.duration * columnWidth}px`
+                                    left: `${leftPx}px`,
+                                    width: `${widthPx}px`,
+                                    top: `${topPx}px`
                                   }}
                                   onClick={() => setEditingTask(task)}
-                                  className={`absolute h-8 rounded-lg bg-gradient-to-r ${task.project.color} px-2 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-pointer hover:brightness-110 truncate border border-white/20`}
+                                  className={`absolute h-8 rounded-lg bg-gradient-to-r ${task.project.color} px-2.5 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-pointer hover:brightness-110 truncate border border-white/20 z-10 transition-all`}
                                   title={`${task.title} (Projet: ${task.project.title})`}
                                 >
                                   <span className="truncate">{task.title}</span>
-                                  <span className="ml-1 opacity-90 text-[9px] font-mono bg-black/30 px-1 py-0.5 rounded">{task.duration}j</span>
+                                  <span className="ml-1 opacity-90 text-[9px] font-mono bg-black/40 px-1.5 py-0.5 rounded border border-white/10 shrink-0">
+                                    {task.duration}j
+                                  </span>
                                 </div>
                               );
                             })}
@@ -983,12 +1039,12 @@
               </div>
             )}
 
-            {/* INSPECTEUR PROJET (Panneau Droit) */}
+            {/* INSPECTEUR PROJET */}
             {activeTab === 'roadmap' && selectedProject && (
-              <div className="w-80 border-l border-jira-border bg-jira-card p-5 flex flex-col justify-between shrink-0 overflow-y-auto">
+              <div className="w-80 border-l border-aura-border bg-aura-card p-5 flex flex-col justify-between shrink-0 overflow-y-auto">
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                       {selectedProject.category}
                     </span>
                     <button onClick={() => deleteProject(selectedProject.id)} className="text-xs text-rose-400 hover:text-rose-300">
@@ -996,22 +1052,20 @@
                     </button>
                   </div>
 
-                  {/* Titre Projet */}
                   <div className="mb-4">
                     <label className="block text-[10px] text-slate-400 uppercase mb-1 font-semibold">Titre du Projet</label>
                     <input 
                       type="text" 
                       value={selectedProject.title}
                       onChange={e => handleUpdateProjectField(selectedProject.id, 'title', e.target.value)}
-                      className="w-full bg-jira-bg font-bold text-sm text-slate-100 p-2 rounded-lg border border-jira-border focus:border-blue-500"
+                      className="w-full bg-aura-bg font-bold text-sm text-slate-100 p-2 rounded-lg border border-aura-border focus:border-indigo-500"
                     />
                   </div>
 
-                  {/* Badge & Action Health Check */}
                   {(() => {
                     const health = getProjectHealth(selectedProject);
                     return (
-                      <div className="mb-4 p-3 rounded-xl bg-jira-bg border border-jira-border space-y-2">
+                      <div className="mb-4 p-3 rounded-xl bg-aura-bg border border-aura-border space-y-2">
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-slate-400 font-semibold">Santé Planning :</span>
                           <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${
@@ -1033,15 +1087,14 @@
                     );
                   })()}
 
-                  {/* Paramètres Projet */}
-                  <div className="space-y-3 bg-jira-bg p-3 rounded-xl border border-jira-border mb-6 text-xs">
+                  <div className="space-y-3 bg-aura-bg p-3 rounded-xl border border-aura-border mb-6 text-xs">
                     <div>
                       <label className="block text-[10px] text-slate-400 uppercase mb-1">Date Cible de début</label>
                       <input 
                         type="date" 
                         value={selectedProject.startDate}
                         onChange={e => handleUpdateProjectField(selectedProject.id, 'startDate', e.target.value)}
-                        className="w-full bg-jira-card border border-jira-border rounded p-1.5 text-slate-200"
+                        className="w-full bg-aura-card border border-aura-border rounded p-1.5 text-slate-200"
                       />
                     </div>
 
@@ -1052,7 +1105,7 @@
                           type="number" min="1"
                           value={selectedProject.duration}
                           onChange={e => handleUpdateProjectField(selectedProject.id, 'duration', Number(e.target.value))}
-                          className="w-full bg-jira-card border border-jira-border rounded p-1.5 text-slate-200"
+                          className="w-full bg-aura-card border border-aura-border rounded p-1.5 text-slate-200"
                         />
                       </div>
                       <div>
@@ -1060,7 +1113,7 @@
                         <select 
                           value={selectedProject.color}
                           onChange={e => handleUpdateProjectField(selectedProject.id, 'color', e.target.value)}
-                          className="w-full bg-jira-card border border-jira-border rounded p-1.5 text-slate-200"
+                          className="w-full bg-aura-card border border-aura-border rounded p-1.5 text-slate-200"
                         >
                           {COLOR_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.name}</option>)}
                         </select>
@@ -1068,7 +1121,6 @@
                     </div>
                   </div>
 
-                  {/* Liste des Tâches */}
                   <div>
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
                       Tâches Réelles ({selectedProject.tasks?.length || 0})
@@ -1076,7 +1128,7 @@
 
                     <div className="space-y-2 mb-4">
                       {(selectedProject.tasks || []).map(task => (
-                        <div key={task.id} className="p-2.5 bg-jira-bg rounded-xl border border-jira-border flex items-center justify-between text-xs">
+                        <div key={task.id} className="p-2.5 bg-aura-bg rounded-xl border border-aura-border flex items-center justify-between text-xs">
                           <div className="truncate pr-2">
                             <div className="font-semibold text-slate-200 truncate">{task.title}</div>
                             <div className="text-[10px] text-slate-400">
@@ -1085,7 +1137,7 @@
                           </div>
                           <button 
                             onClick={() => setEditingTask(task)}
-                            className="px-2 py-1 bg-jira-card hover:bg-slate-800 text-[10px] font-semibold text-blue-400 rounded border border-jira-border shrink-0"
+                            className="px-2 py-1 bg-aura-card hover:bg-slate-800 text-[10px] font-semibold text-indigo-400 rounded border border-aura-border shrink-0"
                           >
                             Éditer
                           </button>
@@ -1093,39 +1145,46 @@
                       ))}
                     </div>
 
-                    {/* Formulaire Nouvelle Tâche */}
-                    <form onSubmit={handleAddTask} className="space-y-2 bg-jira-bg p-3 rounded-xl border border-jira-border">
+                    <form onSubmit={handleAddTask} className="space-y-2 bg-aura-bg p-3 rounded-xl border border-aura-border">
                       <input 
                         type="text" placeholder="Titre de la tâche..." required
                         value={newTaskForm.title}
                         onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})}
-                        className="w-full bg-jira-card text-xs p-2 rounded border border-jira-border text-slate-200"
+                        className="w-full bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
                       />
                       <div className="grid grid-cols-2 gap-2">
                         <input 
                           type="text" placeholder="Assigné à"
                           value={newTaskForm.assignee}
                           onChange={e => setNewTaskForm({...newTaskForm, assignee: e.target.value})}
-                          className="bg-jira-card text-xs p-2 rounded border border-jira-border text-slate-200"
+                          className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
                         />
                         <input 
                           type="date" required
                           value={newTaskForm.startDate}
                           onChange={e => setNewTaskForm({...newTaskForm, startDate: e.target.value})}
-                          className="bg-jira-card text-xs p-2 rounded border border-jira-border text-slate-200"
+                          className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
                         />
                       </div>
                       <div className="grid grid-cols-2 gap-2">
+                        <select 
+                          value={newTaskForm.slot} 
+                          onChange={e => setNewTaskForm({...newTaskForm, slot: e.target.value})}
+                          className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
+                        >
+                          <option value="AM">Matin (AM)</option>
+                          <option value="PM">Aujourd'hui (PM)</option>
+                        </select>
                         <input 
-                          type="number" min="1" placeholder="Durée (j)"
+                          type="number" step="0.5" min="0.5" placeholder="Durée (j)"
                           value={newTaskForm.duration}
                           onChange={e => setNewTaskForm({...newTaskForm, duration: e.target.value})}
-                          className="bg-jira-card text-xs p-2 rounded border border-jira-border text-slate-200"
+                          className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
                         />
-                        <button type="submit" className="py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded transition">
-                          + Ajouter Tâche
-                        </button>
                       </div>
+                      <button type="submit" className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded transition">
+                        + Ajouter Tâche (Précision 0.5j)
+                      </button>
                     </form>
                   </div>
                 </div>
@@ -1133,10 +1192,10 @@
             )}
           </div>
 
-          {/* MODAL 1 : ÉDITION ET SCISSION (SPLIT) D'UNE TÂCHE */}
+          {/* MODAL 1 : ÉDITION D'UNE TÂCHE */}
           {editingTask && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-jira-card border border-jira-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-base font-bold text-slate-100">Modifier la Tâche</h3>
                   <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-white">✕</button>
@@ -1149,80 +1208,73 @@
                       type="text" 
                       value={editingTask.title} 
                       onChange={e => setEditingTask({...editingTask, title: e.target.value})}
-                      className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200" 
+                      className="w-full bg-aura-bg text-xs p-3 rounded-xl border border-aura-border text-slate-200" 
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Date de début réelle</label>
+                      <label className="block text-xs text-slate-400 mb-1">Date de début</label>
                       <input 
                         type="date" 
                         value={editingTask.startDate || TODAY_STR} 
                         onChange={e => setEditingTask({...editingTask, startDate: e.target.value})}
-                        className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200" 
+                        className="w-full bg-aura-bg text-xs p-3 rounded-xl border border-aura-border text-slate-200" 
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Durée (jours)</label>
-                      <input 
-                        type="number" min="1" 
-                        value={editingTask.duration} 
-                        onChange={e => setEditingTask({...editingTask, duration: Number(e.target.value)})}
-                        className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200" 
-                      />
+                      <label className="block text-xs text-slate-400 mb-1">Créneau</label>
+                      <select 
+                        value={editingTask.slot || 'AM'} 
+                        onChange={e => setEditingTask({...editingTask, slot: e.target.value})}
+                        className="w-full bg-aura-bg text-xs p-3 rounded-xl border border-aura-border text-slate-200"
+                      >
+                        <option value="AM">Matin (AM)</option>
+                        <option value="PM">Après-midi (PM)</option>
+                      </select>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">Durée (jours - pas 0.5j)</label>
+                      <input 
+                        type="number" step="0.5" min="0.5"
+                        value={editingTask.duration} 
+                        onChange={e => setEditingTask({...editingTask, duration: Number(e.target.value)})}
+                        className="w-full bg-aura-bg text-xs p-3 rounded-xl border border-aura-border text-slate-200" 
+                      />
+                    </div>
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">Collaborateur assigné</label>
                       <input 
                         type="text" 
                         value={editingTask.assignee} 
                         onChange={e => setEditingTask({...editingTask, assignee: e.target.value})}
-                        className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200" 
+                        className="w-full bg-aura-bg text-xs p-3 rounded-xl border border-aura-border text-slate-200" 
                       />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-400 mb-1">Statut Kanban</label>
-                      <select 
-                        value={editingTask.status} 
-                        onChange={e => setEditingTask({...editingTask, status: e.target.value})}
-                        className="w-full bg-jira-bg text-xs p-3 rounded-xl border border-jira-border text-slate-200"
-                      >
-                        <option value="TODO">À faire</option>
-                        <option value="IN_PROGRESS">En cours</option>
-                        <option value="IN_REVIEW">En revue</option>
-                        <option value="DONE">Terminé</option>
-                      </select>
                     </div>
                   </div>
 
-                  {/* Bouton de Scission de Tâche */}
-                  {editingTask.duration > 1 && (
-                    <div className="p-3 bg-jira-bg rounded-xl border border-jira-border flex items-center justify-between">
-                      <span className="text-xs text-slate-300">Découper cette tâche en 2 parties</span>
+                  {/* Bouton pour déclencher la Scission */}
+                  {editingTask.duration > 0.5 && (
+                    <div className="p-3 bg-aura-bg rounded-xl border border-aura-border flex items-center justify-between">
+                      <span className="text-xs text-slate-300">Scinder en 2 sous-tâches</span>
                       <button 
                         type="button"
-                        onClick={() => splitTask(editingTask.id)}
+                        onClick={() => openSplitModal(editingTask)}
                         className="px-3 py-1.5 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border border-indigo-500/30 text-xs font-semibold rounded-lg transition"
                       >
-                        ✂️ Scinder
+                        ✂️ Scinder Tâche
                       </button>
                     </div>
                   )}
 
-                  <div className="flex justify-between items-center pt-4 border-t border-jira-border">
-                    <button 
-                      onClick={() => handleDeleteTask(editingTask.id)}
-                      className="text-xs text-rose-400 hover:text-rose-300 font-semibold"
-                    >
-                      Supprimer
-                    </button>
+                  <div className="flex justify-between items-center pt-4 border-t border-aura-border">
+                    <button onClick={() => handleDeleteTask(editingTask.id)} className="text-xs text-rose-400 font-semibold">Supprimer</button>
                     <div className="flex gap-2">
-                      <button onClick={() => setEditingTask(null)} className="px-4 py-2 bg-jira-bg text-xs text-slate-300 rounded-xl">Annuler</button>
-                      <button onClick={() => handleUpdateTask(editingTask)} className="px-4 py-2 bg-blue-600 text-xs font-semibold text-white rounded-xl">Enregistrer</button>
+                      <button onClick={() => setEditingTask(null)} className="px-4 py-2 bg-aura-bg text-xs text-slate-300 rounded-xl">Annuler</button>
+                      <button onClick={() => handleUpdateTask(editingTask)} className="px-4 py-2 bg-indigo-600 text-xs font-semibold text-white rounded-xl">Enregistrer</button>
                     </div>
                   </div>
                 </div>
@@ -1230,34 +1282,68 @@
             </div>
           )}
 
+          {/* MODAL DE SCISSION DE TÂCHE SUR-MESURE */}
+          {splittingTask && (
+            <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                <h3 className="text-base font-bold text-slate-100 mb-2">✂️ Scission de Tâche Sur-Mesure</h3>
+                <p className="text-xs text-slate-400 mb-4">Tâche initiale : <strong>{splittingTask.title}</strong> ({splittingTask.duration} jours)</p>
+
+                <form onSubmit={executeSplitTask} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block text-slate-300 mb-1 font-medium">Durée Partie 1 (jours)</label>
+                    <input 
+                      type="number" step="0.5" min="0.5" max={splittingTask.duration - 0.5} required
+                      value={splitPart1Duration}
+                      onChange={e => setSplitPart1Duration(Number(e.target.value))}
+                      className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                    />
+                  </div>
+
+                  <div className="p-3 bg-aura-bg rounded-xl border border-aura-border space-y-1">
+                    <div className="text-slate-400">Durée calculée Partie 2 :</div>
+                    <div className="text-sm font-bold text-indigo-400">
+                      {(splittingTask.duration - splitPart1Duration).toFixed(1)} jour(s)
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-4 border-t border-aura-border">
+                    <button type="button" onClick={() => setSplittingTask(null)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Annuler</button>
+                    <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl shadow">Confirmer la Scission</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
           {/* MODAL 2 : CONFIGURATION GITHUB */}
           {isConfigModalOpen && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-jira-card border border-jira-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-slate-100">⚙️ Configuration Sauvegarde GitHub</h3>
+                  <h3 className="text-base font-bold text-slate-100">⚙️ Config GitHub Sync</h3>
                   <button onClick={() => setIsConfigModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
                 </div>
 
                 <div className="space-y-4 text-xs">
                   <div>
                     <label className="block text-slate-400 mb-1">Propriétaire Dépôt (Owner)</label>
-                    <input type="text" placeholder="ex: mon-pseudo" value={ghConfig.owner} onChange={e => setGhConfig({...ghConfig, owner: e.target.value})} className="w-full bg-jira-bg p-3 rounded-xl border border-jira-border text-slate-200" />
+                    <input type="text" placeholder="ex: mon-pseudo" value={ghConfig.owner} onChange={e => setGhConfig({...ghConfig, owner: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
                   </div>
                   <div>
                     <label className="block text-slate-400 mb-1">Nom du Dépôt (Repo)</label>
-                    <input type="text" placeholder="ex: ma-roadmap" value={ghConfig.repo} onChange={e => setGhConfig({...ghConfig, repo: e.target.value})} className="w-full bg-jira-bg p-3 rounded-xl border border-jira-border text-slate-200" />
+                    <input type="text" placeholder="ex: ma-roadmap" value={ghConfig.repo} onChange={e => setGhConfig({...ghConfig, repo: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
                   </div>
                   <div>
-                    <label className="block text-slate-400 mb-1">GitHub Personal Access Token (PAT)</label>
-                    <input type="password" placeholder="github_pat_..." value={ghConfig.token} onChange={e => setGhConfig({...ghConfig, token: e.target.value})} className="w-full bg-jira-bg p-3 rounded-xl border border-jira-border text-slate-200" />
+                    <label className="block text-slate-400 mb-1">Token GitHub (PAT)</label>
+                    <input type="password" placeholder="github_pat_..." value={ghConfig.token} onChange={e => setGhConfig({...ghConfig, token: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
                   </div>
 
-                  {syncStatus && <div className="text-blue-400 font-semibold">{syncStatus}</div>}
+                  {syncStatus && <div className="text-indigo-400 font-semibold">{syncStatus}</div>}
 
-                  <div className="flex justify-end gap-3 pt-4 border-t border-jira-border">
-                    <button onClick={() => setIsConfigModalOpen(false)} className="px-4 py-2 bg-jira-bg text-slate-300 rounded-xl">Fermer</button>
-                    <button onClick={saveToGitHub} className="px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold">Commiter data.json</button>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-aura-border">
+                    <button onClick={() => setIsConfigModalOpen(false)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Fermer</button>
+                    <button onClick={saveToGitHub} className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold">Commiter data.json</button>
                   </div>
                 </div>
               </div>
@@ -1267,26 +1353,26 @@
           {/* MODAL 3 : CRÉATION DE PROJET */}
           {isProjectModalOpen && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-jira-card border border-jira-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
                 <h3 className="text-lg font-bold text-slate-100 mb-4">Créer un Nouveau Projet</h3>
                 <form onSubmit={handleCreateProject} className="space-y-4 text-xs">
                   <div>
                     <label className="block text-slate-400 mb-1">Nom du Projet</label>
-                    <input type="text" required value={newProjectForm.title} onChange={e => setNewProjectForm({...newProjectForm, title: e.target.value})} className="w-full bg-jira-bg p-3 rounded-xl border border-jira-border text-slate-200" />
+                    <input type="text" required value={newProjectForm.title} onChange={e => setNewProjectForm({...newProjectForm, title: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-slate-400 mb-1">Date Cible de début</label>
-                      <input type="date" required value={newProjectForm.startDate} onChange={e => setNewProjectForm({...newProjectForm, startDate: e.target.value})} className="w-full bg-jira-bg p-3 rounded-xl border border-jira-border text-slate-200" />
+                      <input type="date" required value={newProjectForm.startDate} onChange={e => setNewProjectForm({...newProjectForm, startDate: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
                     </div>
                     <div>
                       <label className="block text-slate-400 mb-1">Durée Cible (jours)</label>
-                      <input type="number" min="1" required value={newProjectForm.duration} onChange={e => setNewProjectForm({...newProjectForm, duration: e.target.value})} className="w-full bg-jira-bg p-3 rounded-xl border border-jira-border text-slate-200" />
+                      <input type="number" min="1" required value={newProjectForm.duration} onChange={e => setNewProjectForm({...newProjectForm, duration: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
                     </div>
                   </div>
-                  <div className="flex justify-end gap-3 pt-4 border-t border-jira-border">
-                    <button type="button" onClick={() => setIsProjectModalOpen(false)} className="px-4 py-2 bg-jira-bg text-slate-300 rounded-xl">Annuler</button>
-                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-xl">Créer Projet</button>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-aura-border">
+                    <button type="button" onClick={() => setIsProjectModalOpen(false)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Annuler</button>
+                    <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-xl">Créer Projet</button>
                   </div>
                 </form>
               </div>
@@ -1297,7 +1383,7 @@
       );
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<RoadmapApp />);
+    ReactDOM.createRoot(document.getElementById('root')).render(<AuraPlanApp />);
   </script>
 </body>
 </html>
