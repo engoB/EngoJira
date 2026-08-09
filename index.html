@@ -92,8 +92,8 @@
         color: 'from-indigo-600 to-violet-600',
         tasks: [
           { id: 't-1-1', title: 'Infra Terraform Cluster', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 3.5, status: 'DONE' },
-          { id: 't-1-2', title: 'Configuration Ingress & SSL', assignee: 'Lucas R.', startDate: formatDateIso(addDays(new Date(), 3)), slot: 'PM', duration: 4.5, status: 'IN_PROGRESS' },
-          { id: 't-1-3', title: 'Migration Gateway Auth', assignee: 'Alexandre M.', startDate: formatDateIso(addDays(new Date(), 8)), slot: 'AM', duration: 6, status: 'TODO' }
+          { id: 't-1-2', title: 'Security Audit & Ingress', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'PM', duration: 2, status: 'IN_PROGRESS' },
+          { id: 't-1-3', title: 'Migration Gateway Auth', assignee: 'Lucas R.', startDate: formatDateIso(addDays(new Date(), 4)), slot: 'AM', duration: 5, status: 'TODO' }
         ]
       },
       {
@@ -105,8 +105,7 @@
         color: 'from-purple-600 to-fuchsia-600',
         tasks: [
           { id: 't-2-1', title: 'Tokens Figma & Couleurs', assignee: 'Sophie T.', startDate: formatDateIso(addDays(new Date(), 2)), slot: 'AM', duration: 2.5, status: 'DONE' },
-          { id: 't-2-2', title: 'Composants Formulaires', assignee: 'Sophie T.', startDate: formatDateIso(addDays(new Date(), 4)), slot: 'PM', duration: 5, status: 'IN_PROGRESS' },
-          { id: 't-2-3', title: 'Tests Accessibilité WCAG', assignee: 'Sophie T.', startDate: formatDateIso(addDays(new Date(), 4)), slot: 'AM', duration: 3, status: 'TODO' } // Tâche parallèle
+          { id: 't-2-2', title: 'Composants Formulaires', assignee: 'Sophie T.', startDate: formatDateIso(addDays(new Date(), 4)), slot: 'PM', duration: 5, status: 'IN_PROGRESS' }
         ]
       },
       {
@@ -125,7 +124,7 @@
     function AuraPlanApp() {
       // 1. États Généraux
       const [projects, setProjects] = useState(() => {
-        const saved = localStorage.getItem('auraplan_projects_v1');
+        const saved = localStorage.getItem('auraplan_projects_v3');
         return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
       });
 
@@ -133,14 +132,20 @@
       const [selectedProjectId, setSelectedProjectId] = useState('proj-1');
       const [editingTask, setEditingTask] = useState(null);
       const [splittingTask, setSplittingTask] = useState(null);
-      const [splitPart1Duration, setSplitPart1Duration] = useState(1);
+      const [splitMode, setSplitMode] = useState('daily');
+      const [splitCustomParts, setSplitCustomParts] = useState(2);
+      
       const [columnWidth, setColumnWidth] = useState(52);
+
+      // Panneaux Gauche et Droit (Roadmap)
+      const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
+      const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
 
       // Kanban Drag & Ghosting
       const [draggingKanbanTaskId, setDraggingKanbanTaskId] = useState(null);
       const [dragOverColumn, setDragOverColumn] = useState(null);
 
-      // Modales & Config
+      // Modales
       const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
       const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
@@ -165,7 +170,7 @@
       const [connectedPeers, setConnectedPeers] = useState(1);
       const yDocRef = useRef(null);
 
-      // --- CALCUL DYNAMIQUE DE LA TIMELINE INFINIE & BORNES EXACTES ---
+      // --- CALCUL DYNAMIQUE TIMELINE INFINIE ---
       const { timelineStartDate, totalTimelineDays } = useMemo(() => {
         let minDate = parseDate(TODAY_STR);
         let maxDate = addDays(parseDate(TODAY_STR), 30);
@@ -185,11 +190,11 @@
         });
 
         const start = addDays(minDate, -2);
-        const requiredDays = diffDays(maxDate, start) + 20; // Buffer automatique
+        const requiredDays = diffDays(maxDate, start) + 25;
         return { timelineStartDate: start, totalTimelineDays: Math.max(45, requiredDays) };
       }, [projects]);
 
-      // Calcul des mois pour l'en-tête
+      // En-tête des Mois
       const timelineMonths = useMemo(() => {
         const monthsMap = [];
         let currentMonthKey = '';
@@ -212,7 +217,7 @@
         return monthsMap;
       }, [timelineStartDate, totalTimelineDays]);
 
-      // Flat list de toutes les tâches avec leur projet parent
+      // Flat list de toutes les tâches
       const allFlatTasks = useMemo(() => {
         const list = [];
         projects.forEach(p => {
@@ -231,11 +236,11 @@
         return Array.from(set);
       }, [allFlatTasks]);
 
-      // Persistance LocalStorage
-      useEffect(() => localStorage.setItem('auraplan_projects_v1', JSON.stringify(projects)), [projects]);
+      // Persistance
+      useEffect(() => localStorage.setItem('auraplan_projects_v3', JSON.stringify(projects)), [projects]);
       useEffect(() => localStorage.setItem('gh_config', JSON.stringify(ghConfig)), [ghConfig]);
 
-      // Sync WebRTC P2P (Yjs)
+      // WebRTC Sync (Yjs)
       useEffect(() => {
         if (!window.Y || !window.YWebrtc) return;
         const ydoc = new window.Y.Doc();
@@ -264,77 +269,83 @@
         }
       }, []);
 
-      // PROGRESSION (%) PROJET
+      // PROGRESSION PROJET (%)
       const getProjectProgress = (project) => {
         if (!project.tasks || project.tasks.length === 0) return 0;
         const doneCount = project.tasks.filter(t => t.status === 'DONE').length;
         return Math.round((doneCount / project.tasks.length) * 100);
       };
 
-      // HEALTH CHECK
-      const getProjectHealth = (project) => {
-        if (!project.tasks || project.tasks.length === 0) {
-          return { status: 'NEUTRAL', label: '⚪ Non planifié', delay: 0 };
-        }
+      // --- CALCUL DU SPAN RÉEL DES TÂCHES DU PROJET ---
+      const getProjectActualSpan = (project) => {
+        if (!project.tasks || project.tasks.length === 0) return null;
 
-        const projectTargetEnd = addDays(parseDate(project.startDate), Math.ceil(project.duration) - 1);
-        let latestTaskEnd = parseDate(project.startDate);
+        let minStart = parseDate(project.tasks[0].startDate || project.startDate);
+        let maxEnd = addDays(minStart, Math.ceil(project.tasks[0].duration || 1));
 
         project.tasks.forEach(t => {
           const tStart = parseDate(t.startDate || project.startDate);
-          const tEnd = addDays(tStart, Math.ceil(t.duration || 1) - 1);
-          if (tEnd > latestTaskEnd) latestTaskEnd = tEnd;
+          const tEnd = addDays(tStart, Math.ceil(t.duration || 1));
+          if (tStart < minStart) minStart = tStart;
+          if (tEnd > maxEnd) maxEnd = tEnd;
         });
 
-        const delay = diffDays(latestTaskEnd, projectTargetEnd);
+        const actualStartDate = formatDateIso(minStart);
+        const actualDuration = Math.max(1, diffDays(maxEnd, minStart));
 
-        if (delay > 0) {
-          return { status: 'DANGER', label: `🔴 Retard +${delay}j`, delay };
-        } else if (delay < 0) {
-          return { status: 'SUCCESS', label: `🟢 Avance ${Math.abs(delay)}j`, delay };
+        return { actualStartDate, actualDuration, minStart, maxEnd };
+      };
+
+      // --- HEALTH CHECK DE PROJET (SYNCHRO PARFAITE) ---
+      const getProjectHealth = (project) => {
+        const span = getProjectActualSpan(project);
+        if (!span) return { status: 'NEUTRAL', label: '⚪ Non planifié', delay: 0 };
+
+        const targetStart = parseDate(project.startDate);
+        const targetEnd = addDays(targetStart, Number(project.duration));
+
+        const delayEnd = diffDays(span.maxEnd, targetEnd);
+
+        if (delayEnd > 0) {
+          return { status: 'DANGER', label: `🔴 Retard +${delayEnd}j`, delay: delayEnd };
+        } else if (delayEnd < 0) {
+          return { status: 'SUCCESS', label: `🟢 Avance ${Math.abs(delayEnd)}j`, delay: delayEnd };
         } else {
           return { status: 'SUCCESS', label: '🟢 Dans les temps', delay: 0 };
         }
       };
 
-      // RE-BASELINER
+      // --- ALIGNEMENT EXACT ROADMAP SUR PLANNING ---
       const rebaselineProject = (projectId) => {
         const proj = projects.find(p => p.id === projectId);
-        if (!proj || !proj.tasks || proj.tasks.length === 0) return;
+        if (!proj) return;
+        
+        const span = getProjectActualSpan(proj);
+        if (!span) return;
 
-        let earliestStart = parseDate(proj.tasks[0].startDate || proj.startDate);
-        let latestEnd = addDays(earliestStart, Math.ceil(proj.tasks[0].duration) - 1);
+        const updated = projects.map(p => p.id === projectId ? {
+          ...p,
+          startDate: span.actualStartDate,
+          duration: span.actualDuration
+        } : p);
 
-        proj.tasks.forEach(t => {
-          const tStart = parseDate(t.startDate || proj.startDate);
-          const tEnd = addDays(tStart, Math.ceil(t.duration || 1) - 1);
-          if (tStart < earliestStart) earliestStart = tStart;
-          if (tEnd > latestEnd) latestEnd = tEnd;
-        });
-
-        const newStartDate = formatDateIso(earliestStart);
-        const newDuration = diffDays(latestEnd, earliestStart) + 1;
-
-        const updated = projects.map(p => p.id === projectId ? { ...p, startDate: newStartDate, duration: newDuration } : p);
         broadcastProjects(updated);
       };
 
-      // ALGORITHME DE SUPERPOSITION INTEL (MULTI-TÂCHES PAR COLLABORATEUR)
+      // ALGORITHME MULTI-TÂCHES & EMPILLEMENT LIGNES
       const calculateCollaboratorLanes = (personTasks) => {
-        // Trie les tâches par date de début
         const sorted = [...personTasks].sort((a, b) => {
           const tA = parseDate(a.startDate || a.project.startDate).getTime() + (a.slot === 'PM' ? 43200000 : 0);
           const tB = parseDate(b.startDate || b.project.startDate).getTime() + (b.slot === 'PM' ? 43200000 : 0);
           return tA - tB;
         });
 
-        const lanes = []; // Tableau contenant le timestamp de fin libre de chaque ligne
+        const lanes = [];
 
         const placedTasks = sorted.map(task => {
           const startDays = diffDays(parseDate(task.startDate || task.project.startDate), timelineStartDate) + (task.slot === 'PM' ? 0.5 : 0);
           const endDays = startDays + Number(task.duration);
 
-          // Trouve la première ligne libre
           let laneIndex = lanes.findIndex(freeDay => freeDay <= startDays);
           if (laneIndex === -1) {
             laneIndex = lanes.length;
@@ -349,7 +360,7 @@
         return { placedTasks, totalLanes: Math.max(1, lanes.length) };
       };
 
-      // ENGINE DRAG & RESIZE FLUIDE
+      // DRAG & RESIZE ENGINE
       const handleMouseDown = (e, projectId, action) => {
         e.stopPropagation();
         e.preventDefault();
@@ -408,7 +419,7 @@
         };
       }, [dragState, columnWidth, projects, broadcastProjects]);
 
-      // KANBAN DRAG & DROP GHOSTING
+      // KANBAN DRAG & GHOSTING
       const handleKanbanDragStart = (e, taskId) => {
         setDraggingKanbanTaskId(taskId);
         e.dataTransfer.setData('text/plain', taskId);
@@ -434,7 +445,7 @@
         broadcastProjects(updatedProjects);
       };
 
-      // VUE D'ENSEMBLE INTEGRALE (FIT ALL ULTIME PARTOUT)
+      // VUE D'ENSEMBLE ULTIME (FIT ALL EXACT PARTOUT)
       const fitAllTasks = () => {
         const container = document.getElementById('timeline-viewport');
         if (!container) return;
@@ -464,47 +475,52 @@
         container.scrollLeft = 0;
       };
 
-      // SCISSION DE TÂCHE AVANCÉE
-      const openSplitModal = (task) => {
-        if (task.duration <= 0.5) {
-          alert("Une tâche de 0.5 jour ne peut pas être découpée davantage.");
-          return;
-        }
-        setSplittingTask(task);
-        setSplitPart1Duration(Math.max(0.5, Number((task.duration / 2).toFixed(1))));
-      };
-
-      const executeSplitTask = (e) => {
+      // EXECUTION DE LA SCISSION MULTI-JOURS DIRECTE (1, 2, 3... N JOURS)
+      const executeMultiSplitTask = (e) => {
         e.preventDefault();
         if (!splittingTask) return;
 
-        const p1Dur = Number(splitPart1Duration);
-        const p2Dur = Number((splittingTask.duration - p1Dur).toFixed(1));
+        const newCreatedTasks = [];
+        const baseTask = splittingTask;
 
-        if (p2Dur <= 0) {
-          alert("La durée de la 2nde partie doit être supérieure à 0.");
-          return;
+        if (splitMode === 'daily') {
+          const daysCount = Math.ceil(baseTask.duration);
+          for (let i = 0; i < daysCount; i++) {
+            newCreatedTasks.push({
+              id: `t-${baseTask.project.id}-${Date.now()}-${i}`,
+              title: `${baseTask.title} (J${i + 1})`,
+              assignee: baseTask.assignee,
+              startDate: formatDateIso(addDays(parseDate(baseTask.startDate), i)),
+              slot: baseTask.slot || 'AM',
+              duration: 1,
+              status: baseTask.status
+            });
+          }
+        } else {
+          const parts = Math.max(2, Number(splitCustomParts));
+          const partDuration = Number((baseTask.duration / parts).toFixed(1));
+
+          let currentOffsetDate = parseDate(baseTask.startDate);
+
+          for (let i = 0; i < parts; i++) {
+            newCreatedTasks.push({
+              id: `t-${baseTask.project.id}-${Date.now()}-${i}`,
+              title: `${baseTask.title} (Partie ${i + 1}/${parts})`,
+              assignee: baseTask.assignee,
+              startDate: formatDateIso(currentOffsetDate),
+              slot: baseTask.slot || 'AM',
+              duration: partDuration,
+              status: baseTask.status
+            });
+            currentOffsetDate = addDays(currentOffsetDate, Math.max(1, Math.floor(partDuration)));
+          }
         }
 
-        const task1 = { ...splittingTask, duration: p1Dur };
-        const p1EndDays = parseDate(splittingTask.startDate);
-        const p2Start = formatDateIso(addDays(p1EndDays, Math.floor(p1Dur)));
-
-        const task2 = {
-          id: `t-${splittingTask.project.id}-${Date.now()}`,
-          title: `${splittingTask.title} (Partie 2)`,
-          assignee: splittingTask.assignee,
-          startDate: p2Start,
-          slot: (p1Dur % 1 !== 0) ? (splittingTask.slot === 'AM' ? 'PM' : 'AM') : splittingTask.slot,
-          duration: p2Dur,
-          status: splittingTask.status
-        };
-
         const updatedProjects = projects.map(p => {
-          if (p.id !== splittingTask.project.id) return p;
+          if (p.id !== baseTask.project.id) return p;
           const newTasks = [];
           p.tasks.forEach(t => {
-            if (t.id === splittingTask.id) newTasks.push(task1, task2);
+            if (t.id === baseTask.id) newTasks.push(...newCreatedTasks);
             else newTasks.push(t);
           });
           return { ...p, tasks: newTasks };
@@ -515,7 +531,40 @@
         setEditingTask(null);
       };
 
-      // GESTION PROJETS & TÂCHES
+      // SAUVEGARDE GITHUB REST API
+      const saveToGitHub = async () => {
+        if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) {
+          alert("Veuillez renseigner vos identifiants dans ⚙️ Config GitHub");
+          return;
+        }
+        setSyncStatus('Commit en cours...');
+        try {
+          const url = `https://api.github.com/repos/${ghConfig.owner}/${ghConfig.repo}/contents/${ghConfig.path}`;
+          const headers = { 'Authorization': `token ${ghConfig.token}`, 'Accept': 'application/vnd.github.v3+json' };
+          
+          let currentSha = null;
+          const getRes = await fetch(url, { headers });
+          if (getRes.ok) currentSha = (await getRes.json()).sha;
+
+          const putRes = await fetch(url, {
+            method: 'PUT',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: `Update AuraPlan ${new Date().toLocaleString('fr-FR')}`,
+              content: utf8_to_b64(JSON.stringify(projects, null, 2)),
+              ...(currentSha && { sha: currentSha })
+            })
+          });
+
+          if (!putRes.ok) throw new Error();
+          setSyncStatus('✅ Commité sur GitHub !');
+          setTimeout(() => setSyncStatus(''), 3000);
+          setIsConfigModalOpen(false);
+        } catch {
+          setSyncStatus('❌ Échec de sauvegarde');
+        }
+      };
+
       const handleUpdateProjectField = (projId, field, value) => {
         const updated = projects.map(p => p.id === projId ? { ...p, [field]: value } : p);
         broadcastProjects(updated);
@@ -592,46 +641,12 @@
         }
       };
 
-      // SAUVEGARDE GITHUB REST API
-      const saveToGitHub = async () => {
-        if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) {
-          alert("Veuillez renseigner vos identifiants dans ⚙️ Config GitHub");
-          return;
-        }
-        setSyncStatus('Commit en cours...');
-        try {
-          const url = `https://api.github.com/repos/${ghConfig.owner}/${ghConfig.repo}/contents/${ghConfig.path}`;
-          const headers = { 'Authorization': `token ${ghConfig.token}`, 'Accept': 'application/vnd.github.v3+json' };
-          
-          let currentSha = null;
-          const getRes = await fetch(url, { headers });
-          if (getRes.ok) currentSha = (await getRes.json()).sha;
-
-          const putRes = await fetch(url, {
-            method: 'PUT',
-            headers: { ...headers, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: `Update AuraPlan ${new Date().toLocaleString('fr-FR')}`,
-              content: utf8_to_b64(JSON.stringify(projects, null, 2)),
-              ...(currentSha && { sha: currentSha })
-            })
-          });
-
-          if (!putRes.ok) throw new Error();
-          setSyncStatus('✅ Commité sur GitHub !');
-          setTimeout(() => setSyncStatus(''), 3000);
-          setIsConfigModalOpen(false);
-        } catch {
-          setSyncStatus('❌ Échec de sauvegarde');
-        }
-      };
-
       const selectedProject = projects.find(p => p.id === selectedProjectId);
 
       return (
         <div className={`flex flex-col h-screen overflow-hidden ${dragState ? 'dragging-active' : ''}`}>
           
-          {/* BRANDING HEADER */}
+          {/* HEADER PRINCIPAL */}
           <header className="bg-aura-card border-b border-aura-border px-6 py-3 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-3">
@@ -643,7 +658,7 @@
                 </h1>
               </div>
 
-              {/* Navigation des 3 Vues */}
+              {/* Navigation 3 Vues */}
               <div className="flex bg-aura-bg p-1 rounded-xl border border-aura-border text-xs font-semibold">
                 <button 
                   onClick={() => setActiveTab('roadmap')}
@@ -661,7 +676,7 @@
                   onClick={() => setActiveTab('planning')}
                   className={`px-4 py-1.5 rounded-lg transition ${activeTab === 'planning' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-white'}`}
                 >
-                  👥 Planning Collaborateurs (0.5j)
+                  👥 Planning Collaborateurs (AM/PM)
                 </button>
               </div>
             </div>
@@ -688,12 +703,29 @@
             </div>
           </header>
 
-          {/* TOOLBAR (FIT ALL & ZOOM PARTOUT) */}
+          {/* TOOLBAR & CONTRÔLE DE PANNEAUX */}
           <div className="bg-slate-900/90 border-b border-aura-border px-6 py-2 flex items-center justify-between text-xs text-slate-400 shrink-0">
             <div className="flex items-center gap-3">
+              {activeTab === 'roadmap' && (
+                <div className="flex items-center gap-2 border-r border-aura-border pr-4">
+                  <button 
+                    onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)}
+                    className="px-2.5 py-1 bg-aura-card hover:bg-slate-800 text-slate-300 rounded-lg border border-aura-border flex items-center gap-1 transition font-medium"
+                  >
+                    {isLeftPanelOpen ? '◀ Masquer Projets' : '▶ Afficher Projets'}
+                  </button>
+                  <button 
+                    onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
+                    className="px-2.5 py-1 bg-aura-card hover:bg-slate-800 text-slate-300 rounded-lg border border-aura-border flex items-center gap-1 transition font-medium"
+                  >
+                    {isRightPanelOpen ? 'Masquer Inspecteur ▶' : 'Inspecteur ◀'}
+                  </button>
+                </div>
+              )}
+
               <span className="font-semibold text-slate-300">Timeline Infinie :</span>
               <span className="text-[10px] text-slate-300 font-mono bg-aura-bg px-2.5 py-1 rounded-lg border border-aura-border">
-                {totalTimelineDays} jours calculés (précision 0.5j)
+                {totalTimelineDays} jours
               </span>
               {syncStatus && <span className="font-medium text-indigo-400">{syncStatus}</span>}
             </div>
@@ -721,57 +753,65 @@
           {/* MAIN CONTENT AREA */}
           <div className="flex-1 flex overflow-hidden">
 
-            {/* VUE 1 : ROADMAP MACRO */}
+            {/* VUE 1 : ROADMAP MACRO AVEC PANNEAUX RÉDUCTIBLES */}
             {activeTab === 'roadmap' && (
               <>
-                {/* Left Sidebar: Projets */}
-                <div className="w-80 border-r border-aura-border bg-aura-card flex flex-col shrink-0">
-                  <div className="h-16 border-b border-aura-border px-4 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
-                    <span>Projets ({projects.length})</span>
-                    <span>Santé / Avancement</span>
-                  </div>
+                {/* Panneau Gauche : Liste des Projets (Réductible) */}
+                {isLeftPanelOpen ? (
+                  <div className="w-80 border-r border-aura-border bg-aura-card flex flex-col shrink-0 transition-all">
+                    <div className="h-16 border-b border-aura-border px-4 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
+                      <span>Projets ({projects.length})</span>
+                      <button onClick={() => setIsLeftPanelOpen(false)} className="text-slate-400 hover:text-white">◀</button>
+                    </div>
 
-                  <div className="flex-1 overflow-y-auto divide-y divide-aura-border/50">
-                    {projects.map(proj => {
-                      const pct = getProjectProgress(proj);
-                      const health = getProjectHealth(proj);
-                      const isSelected = proj.id === selectedProjectId;
+                    <div className="flex-1 overflow-y-auto divide-y divide-aura-border/50">
+                      {projects.map(proj => {
+                        const pct = getProjectProgress(proj);
+                        const health = getProjectHealth(proj);
+                        const isSelected = proj.id === selectedProjectId;
 
-                      return (
-                        <div 
-                          key={proj.id}
-                          onClick={() => setSelectedProjectId(proj.id)}
-                          className={`h-16 px-4 flex items-center justify-between cursor-pointer transition-colors ${
-                            isSelected ? 'bg-indigo-600/10 border-l-4 border-indigo-500' : 'hover:bg-slate-800/40'
-                          }`}
-                        >
-                          <div className="truncate pr-2">
-                            <div className="flex items-center gap-2">
-                              <span className={`w-2.5 h-2.5 rounded-full bg-gradient-to-r ${proj.color}`}></span>
-                              <span className="text-xs font-semibold text-slate-200 truncate">{proj.title}</span>
+                        return (
+                          <div 
+                            key={proj.id}
+                            onClick={() => setSelectedProjectId(proj.id)}
+                            className={`h-16 px-4 flex items-center justify-between cursor-pointer transition-colors ${
+                              isSelected ? 'bg-indigo-600/10 border-l-4 border-indigo-500' : 'hover:bg-slate-800/40'
+                            }`}
+                          >
+                            <div className="truncate pr-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2.5 h-2.5 rounded-full bg-gradient-to-r ${proj.color}`}></span>
+                                <span className="text-xs font-semibold text-slate-200 truncate">{proj.title}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
+                                <span className="px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">{proj.category || 'Général'}</span>
+                                <span>•</span>
+                                <span>{proj.duration}j</span>
+                              </div>
                             </div>
-                            <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
-                              <span>Du {formatDateFr(proj.startDate)}</span>
-                              <span>•</span>
-                              <span>{proj.duration}j</span>
+
+                            <div className="flex flex-col items-end gap-1">
+                              <span className="text-[10px] font-mono font-extrabold text-indigo-400">{pct}%</span>
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                health.status === 'DANGER' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              }`}>
+                                {health.label}
+                              </span>
                             </div>
                           </div>
-
-                          <div className="flex flex-col items-end gap-1">
-                            <span className="text-[10px] font-mono font-extrabold text-indigo-400">{pct}%</span>
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                              health.status === 'DANGER' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            }`}>
-                              {health.label}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="w-10 border-r border-aura-border bg-aura-card flex flex-col items-center py-4 shrink-0">
+                    <button onClick={() => setIsLeftPanelOpen(true)} className="p-2 bg-aura-bg border border-aura-border text-slate-300 rounded-lg hover:bg-slate-800" title="Afficher les Projets">
+                      ▶
+                    </button>
+                  </div>
+                )}
 
-                {/* Right Timeline Viewport */}
+                {/* Timeline Viewport Plein Écran */}
                 <div id="timeline-viewport" className="flex-1 flex flex-col overflow-x-auto bg-aura-bg relative">
                   
                   {/* En-tête Mois */}
@@ -843,16 +883,13 @@
                                 isSelected ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-aura-bg' : ''
                               }`}
                             >
-                              {/* BARRE DE Remplissage DE PROGRESSION (%) ULTRA LISIBLE */}
                               <div 
                                 className={`absolute top-0 bottom-0 left-0 bg-gradient-to-r ${proj.color} opacity-90 transition-all duration-300 shadow-lg`}
                                 style={{ width: `${pct}%` }}
                               />
 
-                              {/* Poignée Gauche */}
                               <div onMouseDown={(e) => handleMouseDown(e, proj.id, 'resize-left')} className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/30 opacity-0 group-hover:opacity-100 z-20 hover:bg-white/70" />
                               
-                              {/* Label avec Titre + % Contrasté */}
                               <div className="truncate px-3 pointer-events-none flex items-center justify-between w-full z-10">
                                 <span className="text-xs font-black text-white truncate drop-shadow">{proj.title}</span>
                                 <span className="text-[11px] text-white font-mono font-black ml-2 bg-slate-950/90 px-2 py-0.5 rounded-lg border border-white/20 shadow-lg">
@@ -860,10 +897,8 @@
                                 </span>
                               </div>
 
-                              {/* Poignée Droite */}
                               <div onMouseDown={(e) => handleMouseDown(e, proj.id, 'resize-right')} className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/30 opacity-0 group-hover:opacity-100 z-20 hover:bg-white/70" />
 
-                              {/* Tooltip Survol */}
                               {isDraggingThis && (
                                 <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500 text-slate-100 text-[10px] font-mono px-3 py-1 rounded-lg shadow-2xl z-30 whitespace-nowrap">
                                   📅 {formatDateFr(displayStart)} → {formatDateFr(endDateStr)} ({displayDur}j)
@@ -876,10 +911,174 @@
                     </div>
                   </div>
                 </div>
+
+                {/* Panneau Droit Inspecteur (Réductible) */}
+                {isRightPanelOpen && selectedProject && (
+                  <div className="w-80 border-l border-aura-border bg-aura-card p-5 flex flex-col justify-between shrink-0 overflow-y-auto transition-all">
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                          {selectedProject.category || 'Général'}
+                        </span>
+                        <button onClick={() => setIsRightPanelOpen(false)} className="text-slate-400 hover:text-white">▶</button>
+                      </div>
+
+                      {/* ÉDITION TITRE ET CATÉGORIE / TAG DE PROJET */}
+                      <div className="space-y-3 mb-4">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 uppercase mb-1 font-semibold">Titre du Projet</label>
+                          <input 
+                            type="text" 
+                            value={selectedProject.title}
+                            onChange={e => handleUpdateProjectField(selectedProject.id, 'title', e.target.value)}
+                            className="w-full bg-aura-bg font-bold text-sm text-slate-100 p-2 rounded-lg border border-aura-border focus:border-indigo-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] text-slate-400 uppercase mb-1 font-semibold">Catégorie / Tag du Projet</label>
+                          <input 
+                            type="text" 
+                            value={selectedProject.category || ''}
+                            onChange={e => handleUpdateProjectField(selectedProject.id, 'category', e.target.value)}
+                            className="w-full bg-aura-bg font-semibold text-xs text-indigo-400 p-2 rounded-lg border border-aura-border focus:border-indigo-500"
+                            placeholder="ex: Infrastructure, Frontend, Marketing..."
+                          />
+                        </div>
+                      </div>
+
+                      {(() => {
+                        const health = getProjectHealth(selectedProject);
+                        return (
+                          <div className="mb-4 p-3 rounded-xl bg-aura-bg border border-aura-border space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400 font-semibold">Santé Planning :</span>
+                              <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${
+                                health.status === 'DANGER' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              }`}>
+                                {health.label}
+                              </span>
+                            </div>
+
+                            {health.status === 'DANGER' && (
+                              <button 
+                                onClick={() => rebaselineProject(selectedProject.id)}
+                                className="w-full py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 font-semibold rounded-lg text-xs transition shadow"
+                              >
+                                ⚡ Aligner Roadmap sur Planning
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      <div className="space-y-3 bg-aura-bg p-3 rounded-xl border border-aura-border mb-6 text-xs">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 uppercase mb-1">Date Cible de début</label>
+                          <input 
+                            type="date" 
+                            value={selectedProject.startDate}
+                            onChange={e => handleUpdateProjectField(selectedProject.id, 'startDate', e.target.value)}
+                            className="w-full bg-aura-card border border-aura-border rounded p-1.5 text-slate-200"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] text-slate-400 uppercase mb-1">Durée Cible (j)</label>
+                            <input 
+                              type="number" min="1"
+                              value={selectedProject.duration}
+                              onChange={e => handleUpdateProjectField(selectedProject.id, 'duration', Number(e.target.value))}
+                              className="w-full bg-aura-card border border-aura-border rounded p-1.5 text-slate-200"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] text-slate-400 uppercase mb-1">Couleur</label>
+                            <select 
+                              value={selectedProject.color}
+                              onChange={e => handleUpdateProjectField(selectedProject.id, 'color', e.target.value)}
+                              className="w-full bg-aura-card border border-aura-border rounded p-1.5 text-slate-200"
+                            >
+                              {COLOR_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.name}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                          Tâches Réelles ({selectedProject.tasks?.length || 0})
+                        </h3>
+
+                        <div className="space-y-2 mb-4">
+                          {(selectedProject.tasks || []).map(task => (
+                            <div key={task.id} className="p-2.5 bg-aura-bg rounded-xl border border-aura-border flex items-center justify-between text-xs">
+                              <div className="truncate pr-2">
+                                <div className="font-semibold text-slate-200 truncate">{task.title}</div>
+                                <div className="text-[10px] text-slate-400">
+                                  👤 {task.assignee} • {formatDateFr(task.startDate)} ({task.duration}j)
+                                </div>
+                              </div>
+                              <button 
+                                onClick={() => setEditingTask(task)}
+                                className="px-2 py-1 bg-aura-card hover:bg-slate-800 text-[10px] font-semibold text-indigo-400 rounded border border-aura-border shrink-0"
+                              >
+                                Éditer
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+
+                        <form onSubmit={handleAddTask} className="space-y-2 bg-aura-bg p-3 rounded-xl border border-aura-border">
+                          <input 
+                            type="text" placeholder="Titre de la tâche..." required
+                            value={newTaskForm.title}
+                            onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})}
+                            className="w-full bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
+                          />
+                          <div className="grid grid-cols-2 gap-2">
+                            <input 
+                              type="text" placeholder="Assigné à"
+                              value={newTaskForm.assignee}
+                              onChange={e => setNewTaskForm({...newTaskForm, assignee: e.target.value})}
+                              className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
+                            />
+                            <input 
+                              type="date" required
+                              value={newTaskForm.startDate}
+                              onChange={e => setNewTaskForm({...newTaskForm, startDate: e.target.value})}
+                              className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <select 
+                              value={newTaskForm.slot} 
+                              onChange={e => setNewTaskForm({...newTaskForm, slot: e.target.value})}
+                              className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
+                            >
+                              <option value="AM">☀️ Matin (AM)</option>
+                              <option value="PM">🌙 Apr. Midi (PM)</option>
+                            </select>
+                            <input 
+                              type="number" step="0.5" min="0.5" placeholder="Durée (j)"
+                              value={newTaskForm.duration}
+                              onChange={e => setNewTaskForm({...newTaskForm, duration: e.target.value})}
+                              className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
+                            />
+                          </div>
+                          <button type="submit" className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded transition">
+                            + Ajouter Tâche
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
-            {/* VUE 2 : KANBAN AVEC GHOSTING DRAG & DROP */}
+            {/* VUE 2 : KANBAN DRAG & DROP */}
             {activeTab === 'kanban' && (
               <div className="flex-1 p-6 bg-aura-bg overflow-x-auto">
                 <div className="grid grid-cols-4 gap-6 min-w-[1100px] h-full">
@@ -936,7 +1135,7 @@
 
                                   <h4 className="text-xs font-bold text-slate-100 mb-1">{task.title}</h4>
                                   <p className="text-[10px] text-slate-400">
-                                    📅 {formatDateFr(task.startDate)} ({task.slot || 'AM'}) • {task.duration}j
+                                    📅 {formatDateFr(task.startDate)} ({task.slot === 'PM' ? '🌙 PM' : '☀️ AM'}) • {task.duration}j
                                   </p>
                                 </div>
 
@@ -957,10 +1156,9 @@
               </div>
             )}
 
-            {/* VUE 3 : PLANNING COLLABORATEUR (MULTI-TÂCHES EMPILÉES + DEMI-JOURNÉES 0.5J) */}
+            {/* VUE 3 : PLANNING COLLABORATEUR (MULTI-TÂCHES & CRÉNEAUX AM/PM) */}
             {activeTab === 'planning' && (
               <div id="timeline-viewport" className="flex-1 flex flex-col overflow-x-auto bg-aura-bg">
-                {/* Header Calendrier */}
                 <div className="h-10 border-b border-aura-border flex items-center shrink-0 bg-slate-900/80 sticky top-0 z-10" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   <div className="w-60 px-4 font-bold text-xs text-slate-400 border-r border-aura-border">Collaborateurs</div>
                   <div className="flex-1 flex">
@@ -977,7 +1175,6 @@
                   </div>
                 </div>
 
-                {/* Planning Collaborateurs */}
                 <div className="flex-1 overflow-y-auto" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   {collaborators.map(person => {
                     const personTasks = allFlatTasks.filter(t => t.assignee === person);
@@ -986,7 +1183,6 @@
 
                     return (
                       <div key={person} style={{ height: `${rowHeight}px` }} className="flex border-b border-aura-border transition-all">
-                        {/* Avatar & Nom */}
                         <div className="w-60 p-4 border-r border-aura-border bg-aura-card flex items-center gap-3 shrink-0">
                           <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-xs text-white shadow">
                             {person.charAt(0)}
@@ -997,11 +1193,13 @@
                           </div>
                         </div>
 
-                        {/* Zone Timeline des Tâches Empilées */}
                         <div className="flex-1 relative flex items-center">
                           <div className="absolute inset-0 flex pointer-events-none">
                             {Array.from({ length: totalTimelineDays }).map((_, i) => (
-                              <div key={i} style={{ width: `${columnWidth}px` }} className="h-full border-r border-aura-border/20" />
+                              <div key={i} style={{ width: `${columnWidth}px` }} className="h-full border-r border-aura-border/20 flex">
+                                <div className="w-1/2 border-r border-aura-border/10"></div>
+                                <div className="w-1/2"></div>
+                              </div>
                             ))}
                           </div>
 
@@ -1020,10 +1218,13 @@
                                     top: `${topPx}px`
                                   }}
                                   onClick={() => setEditingTask(task)}
-                                  className={`absolute h-8 rounded-lg bg-gradient-to-r ${task.project.color} px-2.5 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-pointer hover:brightness-110 truncate border border-white/20 z-10 transition-all`}
-                                  title={`${task.title} (Projet: ${task.project.title})`}
+                                  className={`absolute h-8 rounded-lg bg-gradient-to-r ${task.project.color} px-2 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-pointer hover:brightness-110 truncate border border-white/20 z-10 transition-all`}
+                                  title={`${task.title} (${task.slot === 'PM' ? 'Après-Midi' : 'Matin'})`}
                                 >
-                                  <span className="truncate">{task.title}</span>
+                                  <span className="truncate flex items-center gap-1">
+                                    <span>{task.slot === 'PM' ? '🌙' : '☀️'}</span>
+                                    <span>{task.title}</span>
+                                  </span>
                                   <span className="ml-1 opacity-90 text-[9px] font-mono bg-black/40 px-1.5 py-0.5 rounded border border-white/10 shrink-0">
                                     {task.duration}j
                                   </span>
@@ -1039,157 +1240,6 @@
               </div>
             )}
 
-            {/* INSPECTEUR PROJET */}
-            {activeTab === 'roadmap' && selectedProject && (
-              <div className="w-80 border-l border-aura-border bg-aura-card p-5 flex flex-col justify-between shrink-0 overflow-y-auto">
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                      {selectedProject.category}
-                    </span>
-                    <button onClick={() => deleteProject(selectedProject.id)} className="text-xs text-rose-400 hover:text-rose-300">
-                      Supprimer
-                    </button>
-                  </div>
-
-                  <div className="mb-4">
-                    <label className="block text-[10px] text-slate-400 uppercase mb-1 font-semibold">Titre du Projet</label>
-                    <input 
-                      type="text" 
-                      value={selectedProject.title}
-                      onChange={e => handleUpdateProjectField(selectedProject.id, 'title', e.target.value)}
-                      className="w-full bg-aura-bg font-bold text-sm text-slate-100 p-2 rounded-lg border border-aura-border focus:border-indigo-500"
-                    />
-                  </div>
-
-                  {(() => {
-                    const health = getProjectHealth(selectedProject);
-                    return (
-                      <div className="mb-4 p-3 rounded-xl bg-aura-bg border border-aura-border space-y-2">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400 font-semibold">Santé Planning :</span>
-                          <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${
-                            health.status === 'DANGER' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                          }`}>
-                            {health.label}
-                          </span>
-                        </div>
-
-                        {health.status === 'DANGER' && (
-                          <button 
-                            onClick={() => rebaselineProject(selectedProject.id)}
-                            className="w-full py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 font-semibold rounded-lg text-xs transition"
-                          >
-                            ⚡ Aligner Roadmap sur Planning
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })()}
-
-                  <div className="space-y-3 bg-aura-bg p-3 rounded-xl border border-aura-border mb-6 text-xs">
-                    <div>
-                      <label className="block text-[10px] text-slate-400 uppercase mb-1">Date Cible de début</label>
-                      <input 
-                        type="date" 
-                        value={selectedProject.startDate}
-                        onChange={e => handleUpdateProjectField(selectedProject.id, 'startDate', e.target.value)}
-                        className="w-full bg-aura-card border border-aura-border rounded p-1.5 text-slate-200"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] text-slate-400 uppercase mb-1">Durée Cible (j)</label>
-                        <input 
-                          type="number" min="1"
-                          value={selectedProject.duration}
-                          onChange={e => handleUpdateProjectField(selectedProject.id, 'duration', Number(e.target.value))}
-                          className="w-full bg-aura-card border border-aura-border rounded p-1.5 text-slate-200"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] text-slate-400 uppercase mb-1">Couleur</label>
-                        <select 
-                          value={selectedProject.color}
-                          onChange={e => handleUpdateProjectField(selectedProject.id, 'color', e.target.value)}
-                          className="w-full bg-aura-card border border-aura-border rounded p-1.5 text-slate-200"
-                        >
-                          {COLOR_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.name}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-                      Tâches Réelles ({selectedProject.tasks?.length || 0})
-                    </h3>
-
-                    <div className="space-y-2 mb-4">
-                      {(selectedProject.tasks || []).map(task => (
-                        <div key={task.id} className="p-2.5 bg-aura-bg rounded-xl border border-aura-border flex items-center justify-between text-xs">
-                          <div className="truncate pr-2">
-                            <div className="font-semibold text-slate-200 truncate">{task.title}</div>
-                            <div className="text-[10px] text-slate-400">
-                              👤 {task.assignee} • {formatDateFr(task.startDate)} ({task.duration}j)
-                            </div>
-                          </div>
-                          <button 
-                            onClick={() => setEditingTask(task)}
-                            className="px-2 py-1 bg-aura-card hover:bg-slate-800 text-[10px] font-semibold text-indigo-400 rounded border border-aura-border shrink-0"
-                          >
-                            Éditer
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-
-                    <form onSubmit={handleAddTask} className="space-y-2 bg-aura-bg p-3 rounded-xl border border-aura-border">
-                      <input 
-                        type="text" placeholder="Titre de la tâche..." required
-                        value={newTaskForm.title}
-                        onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})}
-                        className="w-full bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
-                      />
-                      <div className="grid grid-cols-2 gap-2">
-                        <input 
-                          type="text" placeholder="Assigné à"
-                          value={newTaskForm.assignee}
-                          onChange={e => setNewTaskForm({...newTaskForm, assignee: e.target.value})}
-                          className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
-                        />
-                        <input 
-                          type="date" required
-                          value={newTaskForm.startDate}
-                          onChange={e => setNewTaskForm({...newTaskForm, startDate: e.target.value})}
-                          className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <select 
-                          value={newTaskForm.slot} 
-                          onChange={e => setNewTaskForm({...newTaskForm, slot: e.target.value})}
-                          className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
-                        >
-                          <option value="AM">Matin (AM)</option>
-                          <option value="PM">Aujourd'hui (PM)</option>
-                        </select>
-                        <input 
-                          type="number" step="0.5" min="0.5" placeholder="Durée (j)"
-                          value={newTaskForm.duration}
-                          onChange={e => setNewTaskForm({...newTaskForm, duration: e.target.value})}
-                          className="bg-aura-card text-xs p-2 rounded border border-aura-border text-slate-200"
-                        />
-                      </div>
-                      <button type="submit" className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded transition">
-                        + Ajouter Tâche (Précision 0.5j)
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* MODAL 1 : ÉDITION D'UNE TÂCHE */}
@@ -1229,8 +1279,8 @@
                         onChange={e => setEditingTask({...editingTask, slot: e.target.value})}
                         className="w-full bg-aura-bg text-xs p-3 rounded-xl border border-aura-border text-slate-200"
                       >
-                        <option value="AM">Matin (AM)</option>
-                        <option value="PM">Après-midi (PM)</option>
+                        <option value="AM">☀️ Matin (AM)</option>
+                        <option value="PM">🌙 Après-midi (PM)</option>
                       </select>
                     </div>
                   </div>
@@ -1256,13 +1306,12 @@
                     </div>
                   </div>
 
-                  {/* Bouton pour déclencher la Scission */}
                   {editingTask.duration > 0.5 && (
                     <div className="p-3 bg-aura-bg rounded-xl border border-aura-border flex items-center justify-between">
-                      <span className="text-xs text-slate-300">Scinder en 2 sous-tâches</span>
+                      <span className="text-xs text-slate-300">Scinder cette tâche en plusieurs sous-tâches</span>
                       <button 
                         type="button"
-                        onClick={() => openSplitModal(editingTask)}
+                        onClick={() => { setSplittingTask(editingTask); }}
                         className="px-3 py-1.5 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border border-indigo-500/30 text-xs font-semibold rounded-lg transition"
                       >
                         ✂️ Scinder Tâche
@@ -1282,34 +1331,56 @@
             </div>
           )}
 
-          {/* MODAL DE SCISSION DE TÂCHE SUR-MESURE */}
+          {/* MODAL DE SCISSION DIRECTE MULTI-JOURS (1, 2, 3... N JOURS) */}
           {splittingTask && (
             <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
               <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
-                <h3 className="text-base font-bold text-slate-100 mb-2">✂️ Scission de Tâche Sur-Mesure</h3>
-                <p className="text-xs text-slate-400 mb-4">Tâche initiale : <strong>{splittingTask.title}</strong> ({splittingTask.duration} jours)</p>
+                <h3 className="text-base font-bold text-slate-100 mb-2">✂️ Scission Multi-Jours Directe</h3>
+                <p className="text-xs text-slate-400 mb-4">Tâche actuelle : <strong>{splittingTask.title}</strong> ({splittingTask.duration} jours)</p>
 
-                <form onSubmit={executeSplitTask} className="space-y-4 text-xs">
+                <form onSubmit={executeMultiSplitTask} className="space-y-4 text-xs">
                   <div>
-                    <label className="block text-slate-300 mb-1 font-medium">Durée Partie 1 (jours)</label>
-                    <input 
-                      type="number" step="0.5" min="0.5" max={splittingTask.duration - 0.5} required
-                      value={splitPart1Duration}
-                      onChange={e => setSplitPart1Duration(Number(e.target.value))}
-                      className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
-                    />
-                  </div>
+                    <label className="block text-slate-300 mb-2 font-medium">Choisissez le mode de découpage :</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button 
+                        type="button"
+                        onClick={() => setSplitMode('daily')}
+                        className={`p-3 rounded-xl border text-left flex flex-col justify-between ${
+                          splitMode === 'daily' ? 'border-indigo-500 bg-indigo-500/10 text-white font-bold' : 'border-aura-border bg-aura-bg text-slate-400'
+                        }`}
+                      >
+                        <span className="font-bold">1j × {Math.ceil(splittingTask.duration)}</span>
+                        <span className="text-[10px] opacity-70 mt-1">1 jour par tâche sur jours consécutifs</span>
+                      </button>
 
-                  <div className="p-3 bg-aura-bg rounded-xl border border-aura-border space-y-1">
-                    <div className="text-slate-400">Durée calculée Partie 2 :</div>
-                    <div className="text-sm font-bold text-indigo-400">
-                      {(splittingTask.duration - splitPart1Duration).toFixed(1)} jour(s)
+                      <button 
+                        type="button"
+                        onClick={() => setSplitMode('custom')}
+                        className={`p-3 rounded-xl border text-left flex flex-col justify-between ${
+                          splitMode === 'custom' ? 'border-indigo-500 bg-indigo-500/10 text-white font-bold' : 'border-aura-border bg-aura-bg text-slate-400'
+                        }`}
+                      >
+                        <span className="font-bold">N Parties</span>
+                        <span className="text-[10px] opacity-70 mt-1">Découpe en N blocs égaux</span>
+                      </button>
                     </div>
                   </div>
 
+                  {splitMode === 'custom' && (
+                    <div>
+                      <label className="block text-slate-400 mb-1">Nombre de sous-parties souhaitées :</label>
+                      <input 
+                        type="number" min="2" max="10" required
+                        value={splitCustomParts}
+                        onChange={e => setSplitCustomParts(e.target.value)}
+                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                      />
+                    </div>
+                  )}
+
                   <div className="flex justify-end gap-3 pt-4 border-t border-aura-border">
                     <button type="button" onClick={() => setSplittingTask(null)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Annuler</button>
-                    <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl shadow">Confirmer la Scission</button>
+                    <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl shadow">Découper la tâche</button>
                   </div>
                 </form>
               </div>
@@ -1359,6 +1430,10 @@
                   <div>
                     <label className="block text-slate-400 mb-1">Nom du Projet</label>
                     <input type="text" required value={newProjectForm.title} onChange={e => setNewProjectForm({...newProjectForm, title: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Catégorie / Tag (ex: Mobile, Design...)</label>
+                    <input type="text" placeholder="ex: Frontend" value={newProjectForm.category} onChange={e => setNewProjectForm({...newProjectForm, category: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
