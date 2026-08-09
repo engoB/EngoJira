@@ -32,7 +32,7 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Yjs + y-webrtc (Temps réel P2P) -->
+  <!-- Yjs + y-webrtc (Temps réel P2P sans serveur) -->
   <script src="https://cdn.jsdelivr.net/npm/yjs@13/dist/yjs.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/y-webrtc@10/dist/y-webrtc.js"></script>
 
@@ -50,7 +50,7 @@
   <script type="text/babel">
     const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
-    // --- HELPERS UTILS & DATES ---
+    // --- HELPERS DATES & UTILS ---
     const utf8_to_b64 = (str) => window.btoa(unescape(encodeURIComponent(str)));
     const b64_to_utf8 = (str) => decodeURIComponent(escape(window.atob(str)));
 
@@ -124,7 +124,7 @@
     function AuraPlanApp() {
       // 1. États Généraux
       const [projects, setProjects] = useState(() => {
-        const saved = localStorage.getItem('auraplan_projects_v6');
+        const saved = localStorage.getItem('auraplan_projects_v7');
         return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
       });
 
@@ -132,11 +132,10 @@
       const [selectedProjectId, setSelectedProjectId] = useState('proj-1');
       const [editingTask, setEditingTask] = useState(null);
       const [splittingTask, setSplittingTask] = useState(null);
-      
-      // Morceaux de scission personnalisée (ex: [4, 0.5, 0.5])
+      const [splitMode, setSplitMode] = useState('half_day');
       const [splitSegments, setSplitSegments] = useState([1, 1]);
 
-      const [columnWidth, setColumnWidth] = useState(90); // Largeur de colonne jour (coupée en 2)
+      const [columnWidth, setColumnWidth] = useState(90);
 
       // Contrôle des Panneaux Gauche & Droit (Roadmap)
       const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
@@ -162,8 +161,10 @@
         title: '', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 2, status: 'TODO'
       });
 
-      // Drag Engines & Ref de détection du glissement
+      // Drag Engine State (Roadmap Projects)
       const [dragState, setDragState] = useState(null);
+      
+      // Drag Engine State (Planning Tasks Move)
       const [planningDragState, setPlanningDragState] = useState(null);
       const hasDraggedPlanningTask = useRef(false);
       const dragAnimRef = useRef(null);
@@ -243,8 +244,8 @@
         return Array.from(set);
       }, [allFlatTasks]);
 
-      // Persistance
-      useEffect(() => localStorage.setItem('auraplan_projects_v6', JSON.stringify(projects)), [projects]);
+      // Persistance LocalStorage
+      useEffect(() => localStorage.setItem('auraplan_projects_v7', JSON.stringify(projects)), [projects]);
       useEffect(() => localStorage.setItem('gh_config', JSON.stringify(ghConfig)), [ghConfig]);
 
       // WebRTC Sync (Yjs)
@@ -335,7 +336,7 @@
         broadcastProjects(updated);
       };
 
-      // --- ALGORITHME DE PLANNING AVEC COLONNES COUPÉES EN 2 (AM/PM) ET EMPILEMENT VERTICAL ---
+      // --- ALGORITHME DE PLANNING EXPLICITE ---
       const calculateCollaboratorLanes = (personTasks) => {
         const sorted = [...personTasks].sort((a, b) => {
           const tA = parseDate(a.startDate || a.project.startDate).getTime() + (a.slot === 'PM' ? 43200000 : 0);
@@ -364,11 +365,11 @@
         return {
           placedTasks,
           totalLanes,
-          rowHeight: totalLanes * 36 + 24
+          rowHeight: totalLanes * 36 + 28
         };
       };
 
-      // CALCUL DU BADGE DE TÂCHES PAR JOUR POUR UN COLLABORATEUR
+      // BADGES DE DÉCOMPTE DE TÂCHES PAR JOUR
       const getTasksCountForDay = (personTasks, dayDate) => {
         const dayIso = formatDateIso(dayDate);
         return personTasks.filter(t => {
@@ -378,7 +379,7 @@
         }).length;
       };
 
-      // DRAG ENGINE ROADMAP (PROJETS)
+      // DRAG ENGINE ROADMAP
       const handleMouseDown = (e, projectId, action) => {
         e.stopPropagation();
         e.preventDefault();
@@ -437,7 +438,7 @@
         };
       }, [dragState, columnWidth, projects, broadcastProjects]);
 
-      // DRAG ENGINE PLANNING SANS OUVERTURE D'INSPECTEUR
+      // DRAG ENGINE PLANNING (SANS MISTRIGGER DE MODAL)
       const handlePlanningMouseDown = (e, task) => {
         e.stopPropagation();
         e.preventDefault();
@@ -543,19 +544,19 @@
 
         const spanDays = diffDays(latest, earliest) + 4;
         const availableWidth = container.clientWidth - 10;
-        const calculatedWidth = Math.max(16, Math.floor(availableWidth / spanDays));
+        const calculatedWidth = Math.max(24, Math.floor(availableWidth / spanDays));
 
         setColumnWidth(calculatedWidth);
         container.scrollLeft = 0;
       };
 
-      // INIT MODAL SCISSION AVEC DUREE EXACTE (EX: 5.5j -> [4, 0.5, 0.5])
+      // OPEN SPLIT MODAL AVEC PARSAGE DES FRAGMENTS PAR PAS DE 0.5J
       const openSplitModal = (task) => {
         setSplittingTask(task);
         if (task.duration === 5.5) {
-          setSplitSegments([4, 0.5, 0.5]);
+          setSplitSegments([4, 0.5, 1]);
         } else if (task.duration > 1) {
-          const half = Number((task.duration / 2).toFixed(1));
+          const half = Number((Math.floor(task.duration / 0.5 / 2) * 0.5).toFixed(1));
           setSplitSegments([half, Number((task.duration - half).toFixed(1))]);
         } else {
           setSplitSegments([0.5, 0.5]);
@@ -568,7 +569,7 @@
 
         const sum = splitSegments.reduce((a, b) => a + Number(b), 0);
         if (Math.abs(sum - splittingTask.duration) > 0.01) {
-          alert(`La somme des morceaux (${sum}j) ne correspond pas à la durée initiale (${splittingTask.duration}j).`);
+          alert(`La somme des tranches (${sum}j) doit être strictement égale à la durée initiale (${splittingTask.duration}j).`);
           return;
         }
 
@@ -841,7 +842,7 @@
             {/* VUE 1 : ROADMAP MACRO */}
             {activeTab === 'roadmap' && (
               <>
-                {/* Panneau Gauche : Liste des Projets */}
+                {/* Panneau Gauche : Liste des Projets (Réductible en rail) */}
                 {isLeftPanelOpen ? (
                   <div className="w-80 border-r border-aura-border bg-aura-card flex flex-col shrink-0 transition-all">
                     <div className="h-16 border-b border-aura-border px-4 flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
@@ -889,13 +890,11 @@
                     </div>
                   </div>
                 ) : (
-                  <button 
-                    onClick={() => setIsLeftPanelOpen(true)} 
-                    className="absolute left-2 top-20 z-30 p-2.5 bg-indigo-600 text-white rounded-xl border border-indigo-400 shadow-2xl hover:bg-indigo-500 font-bold transition flex items-center gap-1 text-xs"
-                    title="Afficher les Projets"
-                  >
-                    ▶ Projets
-                  </button>
+                  <div className="w-8 border-r border-aura-border bg-aura-card flex flex-col items-center py-4 shrink-0">
+                    <button onClick={() => setIsLeftPanelOpen(true)} className="p-1.5 bg-aura-bg border border-aura-border text-slate-300 rounded-lg hover:bg-slate-800 font-bold text-xs" title="Afficher les Projets">
+                      ▶
+                    </button>
+                  </div>
                 )}
 
                 {/* Timeline Viewport Plein Écran */}
@@ -914,24 +913,28 @@
                     ))}
                   </div>
 
-                  {/* En-tête Jours */}
+                  {/* En-tête Jours avec démarcation Semaines et Aujourd'hui */}
                   <div className="h-10 border-b border-aura-border flex items-center shrink-0 bg-slate-900/60 sticky top-6 z-10" style={{ width: `${totalTimelineDays * columnWidth}px` }}>
                     {Array.from({ length: totalTimelineDays }).map((_, i) => {
                       const dayDate = addDays(timelineStartDate, i);
                       const dayStr = formatDateIso(dayDate);
                       const isToday = dayStr === TODAY_STR;
                       const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
+                      const isMonday = dayDate.getDay() === 1;
 
                       return (
                         <div 
                           key={i}
                           style={{ width: `${columnWidth}px` }}
-                          className={`h-full border-r border-aura-border/60 flex flex-col justify-center items-center text-[10px] ${
-                            isToday ? 'bg-indigo-500/20 text-indigo-400 font-bold border-b-2 border-indigo-500' : isWeekend ? 'bg-slate-950/40 text-slate-600' : 'text-slate-400'
+                          className={`h-full border-r flex flex-col justify-center items-center text-[10px] ${
+                            isMonday ? 'border-l-2 border-l-indigo-500/50 border-r-aura-border/60' : 'border-r-aura-border/60'
+                          } ${
+                            isToday ? 'bg-indigo-500/25 text-indigo-300 font-black border-x-2 border-x-indigo-500 shadow-indigo-500/20' : isWeekend ? 'bg-slate-950/60 text-slate-600' : 'text-slate-400'
                           }`}
                         >
                           <span className="uppercase text-[9px] text-slate-500">{dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span>
                           <span>{dayDate.getDate()}</span>
+                          {isToday && <span className="text-[7px] bg-indigo-600 text-white font-black px-1 rounded -mt-0.5">Auj.</span>}
                         </div>
                       );
                     })}
@@ -939,10 +942,22 @@
 
                   {/* Blocs de Projets */}
                   <div className="flex-1 relative" style={{ width: `${totalTimelineDays * columnWidth}px` }}>
+                    {/* Colonnes d'arrière-plan avec séparateur de semaines */}
                     <div className="absolute inset-0 flex pointer-events-none">
-                      {Array.from({ length: totalTimelineDays }).map((_, i) => (
-                        <div key={i} style={{ width: `${columnWidth}px` }} className="h-full border-r border-aura-border/20" />
-                      ))}
+                      {Array.from({ length: totalTimelineDays }).map((_, i) => {
+                        const dayDate = addDays(timelineStartDate, i);
+                        const isMonday = dayDate.getDay() === 1;
+                        const isToday = formatDateIso(dayDate) === TODAY_STR;
+                        return (
+                          <div 
+                            key={i} 
+                            style={{ width: `${columnWidth}px` }} 
+                            className={`h-full border-r ${isMonday ? 'border-l-2 border-l-indigo-500/20 border-r-aura-border/20' : 'border-r-aura-border/20'} ${
+                              isToday ? 'bg-indigo-500/10 border-x-2 border-x-indigo-500/40' : ''
+                            }`} 
+                          />
+                        );
+                      })}
                     </div>
 
                     <div className="relative">
@@ -999,7 +1014,7 @@
                   </div>
                 </div>
 
-                {/* PANNEAU DROIT INSPECTEUR AVEC ORGANISATION STRUCTURÉE & MODIFICATION ROUGE A LA FIN */}
+                {/* Panneau Droit Inspecteur */}
                 {isRightPanelOpen && selectedProject ? (
                   <div className="w-80 border-l border-aura-border bg-aura-card p-5 flex flex-col justify-between shrink-0 overflow-y-auto transition-all">
                     <div>
@@ -1014,7 +1029,7 @@
                         <h2 className="font-extrabold text-sm text-slate-100">{selectedProject.title}</h2>
                       </div>
 
-                      {/* SECTION 2 : HEALTH CHECK & ALIGNEMENT (AMBRE/EMERAUDE) */}
+                      {/* SECTION 2 : HEALTH CHECK ET ALIGNEMENT (AMBRE/EMERAUDE) */}
                       {(() => {
                         const health = getProjectHealth(selectedProject);
                         return (
@@ -1202,13 +1217,11 @@
                     </div>
                   </div>
                 ) : (
-                  <button 
-                    onClick={() => setIsRightPanelOpen(true)} 
-                    className="absolute right-2 top-20 z-30 p-2.5 bg-indigo-600 text-white rounded-xl border border-indigo-400 shadow-2xl hover:bg-indigo-500 font-bold transition flex items-center gap-1 text-xs"
-                    title="Afficher l'inspecteur"
-                  >
-                    Inspecteur ◀
-                  </button>
+                  <div className="w-8 border-l border-aura-border bg-aura-card flex flex-col items-center py-4 shrink-0">
+                    <button onClick={() => setIsRightPanelOpen(true)} className="p-1.5 bg-aura-bg border border-aura-border text-slate-300 rounded-lg hover:bg-slate-800 font-bold text-xs" title="Afficher l'inspecteur">
+                      ◀
+                    </button>
+                  </div>
                 )}
               </>
             )}
@@ -1291,18 +1304,22 @@
               </div>
             )}
 
-            {/* VUE 3 : PLANNING COLLABORATEUR (COLONNES DÉCORDÉES MATIN / PM + BADGE TÂCHES) */}
+            {/* VUE 3 : PLANNING COLLABORATEUR (COLONNES DÉCORDÉES MATIN / PM + BADGES TRÈS VISIBLES) */}
             {activeTab === 'planning' && (
               <div id="timeline-viewport" className="flex-1 flex flex-col overflow-x-auto bg-aura-bg">
-                {/* Header Calendrier avec Sous-Colonnes Matin / PM */}
+                {/* Header Calendrier */}
                 <div className="h-12 border-b border-aura-border flex items-center shrink-0 bg-slate-900/80 sticky top-0 z-10" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   <div className="w-60 px-4 font-bold text-xs text-slate-400 border-r border-aura-border">Collaborateurs</div>
                   <div className="flex-1 flex">
                     {Array.from({ length: totalTimelineDays }).map((_, i) => {
                       const dayDate = addDays(timelineStartDate, i);
                       const isToday = formatDateIso(dayDate) === TODAY_STR;
+                      const isMonday = dayDate.getDay() === 1;
+
                       return (
-                        <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r border-aura-border/50 flex flex-col items-center justify-between py-1 text-[10px] ${isToday ? 'bg-indigo-500/20 text-indigo-400 font-bold' : 'text-slate-400'}`}>
+                        <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r flex flex-col items-center justify-between py-1 text-[10px] ${
+                          isMonday ? 'border-l-2 border-l-indigo-500/50 border-r-aura-border/50' : 'border-r-aura-border/50'
+                        } ${isToday ? 'bg-indigo-500/20 text-indigo-300 font-black border-x-2 border-x-indigo-500' : 'text-slate-400'}`}>
                           <div className="flex items-center gap-1">
                             <span className="uppercase font-bold text-[9px]">{dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span>
                             <span>{dayDate.getDate()}</span>
@@ -1332,25 +1349,32 @@
                           </div>
                           <div>
                             <div className="text-xs font-bold text-slate-200">{person}</div>
-                            <div className="text-[10px] text-slate-400">{personTasks.length} tâche(s) au total</div>
+                            <div className="text-[10px] text-slate-400">{personTasks.length} tâche(s)</div>
                           </div>
                         </div>
 
-                        {/* Colonnes Matin / PM et Badges de Journée */}
+                        {/* Colonnes Matin / PM et Badges de Journée TRÈS VISIBLES */}
                         <div className="flex-1 relative">
                           {/* Grille d'arrière-plan avec séparateur AM/PM et Badges de Tâches par jour */}
                           <div className="absolute inset-0 flex pointer-events-none z-0">
                             {Array.from({ length: totalTimelineDays }).map((_, i) => {
                               const dayDate = addDays(timelineStartDate, i);
                               const count = getTasksCountForDay(personTasks, dayDate);
+                              const isToday = formatDateIso(dayDate) === TODAY_STR;
+                              const isMonday = dayDate.getDay() === 1;
 
                               return (
-                                <div key={i} style={{ width: `${columnWidth}px` }} className="h-full border-r border-aura-border/20 flex relative">
+                                <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r ${
+                                  isMonday ? 'border-l-2 border-l-indigo-500/30 border-r-aura-border/20' : 'border-r-aura-border/20'
+                                } ${isToday ? 'bg-indigo-500/10 border-x-2 border-x-indigo-500/40' : ''} flex relative`}>
+                                  
+                                  {/* BADGE DE NOMBRE DE TÂCHES PAR JOUR TRÈS VISIBLE */}
                                   {count > 0 && (
-                                    <div className="absolute top-1 left-1/2 -translate-x-1/2 bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-[9px] font-bold px-1.5 py-0.2 rounded-full shadow z-20">
+                                    <div className="absolute top-1 right-1 bg-indigo-600 border border-indigo-300 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-lg z-20">
                                       {count} T
                                     </div>
                                   )}
+
                                   <div className="w-1/2 border-r border-aura-border/10"></div>
                                   <div className="w-1/2"></div>
                                 </div>
@@ -1358,7 +1382,7 @@
                             })}
                           </div>
 
-                          {/* Tâches Empilées et Glissables sans ouverture de modal */}
+                          {/* Tâches Empilées avec Effet Ghosting pendant le Glissement */}
                           <div className="relative w-full h-full z-10">
                             {placedTasks.map(task => {
                               const isDraggingThis = planningDragState && planningDragState.taskId === task.id;
@@ -1369,39 +1393,57 @@
                               const widthPx = task.duration * columnWidth;
                               const topPx = task.laneIndex * 36 + 8;
 
-                              return (
-                                <div
-                                  key={task.id}
-                                  style={{
-                                    left: `${leftPx}px`,
-                                    width: `${widthPx}px`,
-                                    top: `${topPx}px`
-                                  }}
-                                  onMouseDown={(e) => handlePlanningMouseDown(e, task)}
-                                  onClick={() => {
-                                    if (!hasDraggedPlanningTask.current) {
-                                      setEditingTask(task);
-                                    }
-                                  }}
-                                  className={`absolute h-7 rounded-lg bg-gradient-to-r ${task.project.color} px-2 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-grab active:cursor-grabbing hover:brightness-110 truncate border border-white/20 select-none transition-shadow ${
-                                    isDraggingThis ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-aura-bg z-30' : ''
-                                  }`}
-                                  title={`${task.title} (Glisser pour décaler)`}
-                                >
-                                  <span className="truncate flex items-center gap-1 pointer-events-none">
-                                    <span>{task.slot === 'PM' ? '🌙' : '☀️'}</span>
-                                    <span className="truncate">{task.title}</span>
-                                  </span>
-                                  <span className="ml-1 opacity-90 text-[9px] font-mono bg-black/40 px-1 py-0.5 rounded border border-white/10 shrink-0 pointer-events-none">
-                                    {task.duration}j
-                                  </span>
+                              // Emplacement d'origine pour afficher le Ghost
+                              const origStartDays = diffDays(parseDate(task.startDate || task.project.startDate), timelineStartDate) + (task.slot === 'PM' ? 0.5 : 0);
+                              const origLeftPx = origStartDays * columnWidth;
 
+                              return (
+                                <React.Fragment key={task.id}>
+                                  {/* GHOST PHANTOM (S'affiche sous la tâche lors du glissement) */}
                                   {isDraggingThis && (
-                                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500 text-slate-100 text-[10px] font-mono px-2 py-0.5 rounded shadow-2xl z-40 whitespace-nowrap">
-                                      📅 {formatDateFr(displayTaskStart)}
-                                    </div>
+                                    <div
+                                      style={{
+                                        left: `${origLeftPx}px`,
+                                        width: `${widthPx}px`,
+                                        top: `${topPx}px`
+                                      }}
+                                      className="absolute h-7 rounded-lg bg-indigo-950/60 border-2 border-dashed border-indigo-400 opacity-40 z-0 pointer-events-none"
+                                    />
                                   )}
-                                </div>
+
+                                  {/* BLOC DE TÂCHE RÉEL */}
+                                  <div
+                                    style={{
+                                      left: `${leftPx}px`,
+                                      width: `${widthPx}px`,
+                                      top: `${topPx}px`
+                                    }}
+                                    onMouseDown={(e) => handlePlanningMouseDown(e, task)}
+                                    onClick={() => {
+                                      if (!hasDraggedPlanningTask.current) {
+                                        setEditingTask(task);
+                                      }
+                                    }}
+                                    className={`absolute h-7 rounded-lg bg-gradient-to-r ${task.project.color} px-2 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-grab active:cursor-grabbing hover:brightness-110 truncate border border-white/20 select-none transition-shadow ${
+                                      isDraggingThis ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-aura-bg z-30 shadow-2xl scale-105' : ''
+                                    }`}
+                                    title={`${task.title} (Glisser pour décaler)`}
+                                  >
+                                    <span className="truncate flex items-center gap-1 pointer-events-none">
+                                      <span>{task.slot === 'PM' ? '🌙' : '☀️'}</span>
+                                      <span className="truncate">{task.title}</span>
+                                    </span>
+                                    <span className="ml-1 opacity-90 text-[9px] font-mono bg-black/40 px-1 py-0.5 rounded border border-white/10 shrink-0 pointer-events-none">
+                                      {task.duration}j
+                                    </span>
+
+                                    {isDraggingThis && (
+                                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500 text-slate-100 text-[10px] font-mono px-2.5 py-0.5 rounded shadow-2xl z-40 whitespace-nowrap">
+                                        📅 {formatDateFr(displayTaskStart)}
+                                      </div>
+                                    )}
+                                  </div>
+                                </React.Fragment>
                               );
                             })}
                           </div>
@@ -1460,7 +1502,7 @@
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Durée (jours - pas 0.5j)</label>
+                      <label className="block text-xs text-slate-400 mb-1">Durée (jours - 0.5j)</label>
                       <input 
                         type="number" step="0.5" min="0.5"
                         value={editingTask.duration} 
@@ -1487,7 +1529,7 @@
                         onClick={() => openSplitModal(editingTask)}
                         className="px-3 py-1.5 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 border border-indigo-500/30 text-xs font-semibold rounded-lg transition"
                       >
-                        ✂️ Scinder Tâche
+                        ✂️ Scinder (Pas 0,5j)
                       </button>
                     </div>
                   )}
@@ -1504,20 +1546,20 @@
             </div>
           )}
 
-          {/* MODAL DE SCISSION ULTRA-FLEXIBLE (EX: 5.5j = 4j + 0.5j + 0.5j) */}
+          {/* MODAL DE SCISSION PAR TRANCHES DE 0.5J (EXCLUSIF PLANNING) */}
           {splittingTask && (
             <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
               <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
-                <h3 className="text-base font-bold text-slate-100 mb-2">✂️ Scission Planning Sur-Mesure</h3>
+                <h3 className="text-base font-bold text-slate-100 mb-2">✂️ Scission Planning (Tranches de 0,5j)</h3>
                 <p className="text-xs text-slate-400 mb-4">Tâche : <strong>{splittingTask.title}</strong> ({splittingTask.duration} jours)</p>
 
                 <form onSubmit={executeFlexibleSplit} className="space-y-4 text-xs">
                   <div>
-                    <label className="block text-slate-300 mb-2 font-medium">Configurez les durées des morceaux :</label>
+                    <label className="block text-slate-300 mb-2 font-medium">Tranches de découpage (pas de 0,5j) :</label>
                     <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                       {splitSegments.map((seg, idx) => (
                         <div key={idx} className="flex items-center gap-2 bg-aura-bg p-2 rounded-xl border border-aura-border">
-                          <span className="text-[10px] font-bold text-slate-400 w-16">Partie {idx + 1} :</span>
+                          <span className="text-[10px] font-bold text-slate-400 w-16">Tranche {idx + 1} :</span>
                           <input 
                             type="number" step="0.5" min="0.5" max={splittingTask.duration} required
                             value={seg}
@@ -1548,12 +1590,12 @@
                       onClick={() => setSplitSegments([...splitSegments, 0.5])}
                       className="mt-2 text-indigo-400 font-semibold hover:underline text-[11px]"
                     >
-                      + Ajouter un morceau supplémentaire
+                      + Ajouter une tranche supplémentaire (+0.5j)
                     </button>
                   </div>
 
                   <div className="p-3 bg-aura-bg rounded-xl border border-aura-border flex items-center justify-between text-[11px]">
-                    <span className="text-slate-400">Somme des morceaux :</span>
+                    <span className="text-slate-400">Somme des tranches :</span>
                     <span className={`font-mono font-bold ${
                       Math.abs(splitSegments.reduce((a,b) => a+Number(b), 0) - splittingTask.duration) < 0.01 ? 'text-emerald-400' : 'text-rose-400'
                     }`}>
