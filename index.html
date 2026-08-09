@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roadmap & Tasks Pro - WebRTC P2P</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- React & ReactDOM CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel pour compiler le JSX en direct dans le navigateur -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Yjs + y-webrtc pour le temps réel Peer-to-Peer sans serveur -->
+  <script src="https://cdn.jsdelivr.net/npm/yjs@13/dist/yjs.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/y-webrtc@10/dist/y-webrtc.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Encodage / Décodage UTF-8 Base64 sécurisé pour l'API GitHub
+    const utf8_to_b64 = (str) => window.btoa(unescape(encodeURIComponent(str)));
+    const b64_to_utf8 = (str) => decodeURIComponent(escape(window.atob(str)));
+
+    const INITIAL_TASKS = [
+      {
+        id: '1',
+        title: 'Architecture & Design System',
+        category: 'Tech',
+        startDay: 1,
+        duration: 5,
+        color: 'from-indigo-500 to-purple-600',
+        subtasks: [
+          { id: '1-1', title: 'Maquettes Figma Tokens', done: true },
+          { id: '1-2', title: 'Configuration Tailwind & UI Components', done: true },
+          { id: '1-3', title: 'Tests de charge UI', done: false }
+        ]
+      },
+      {
+        id: '2',
+        title: 'Développement API Backend',
+        category: 'Backend',
+        startDay: 4,
+        duration: 8,
+        color: 'from-blue-500 to-cyan-600',
+        subtasks: [
+          { id: '2-1', title: 'Schéma PostgreSQL', done: true },
+          { id: '2-2', title: 'Authentification JWT & OAuth', done: false },
+          { id: '2-3', title: 'Documentation Swagger', done: false }
+        ]
+      },
+      {
+        id: '3',
+        title: 'Campagne Marketing & Launch',
+        category: 'Marketing',
+        startDay: 10,
+        duration: 6,
+        color: 'from-emerald-500 to-teal-600',
+        subtasks: [
+          { id: '3-1', title: 'Rédaction Landing Page', done: false },
+          { id: '3-2', title: 'Emailing bêta-testeurs', done: false }
+        ]
+      }
+    ];
+
+    function RoadmapApp() {
+      // 1. États Principaux
+      const [tasks, setTasks] = useState(() => {
+        const saved = localStorage.getItem('gh_roadmap_tasks');
+        return saved ? JSON.parse(saved) : INITIAL_TASKS;
+      });
+
+      const [selectedTask, setSelectedTask] = useState(null);
+      const [resizing, setResizing] = useState(null);
+
+      // 2. Configuration GitHub API
+      const [ghConfig, setGhConfig] = useState(() => {
+        const saved = localStorage.getItem('gh_config');
+        return saved ? JSON.parse(saved) : { owner: '', repo: '', path: 'data.json', token: '' };
+      });
+      const [syncStatus, setSyncStatus] = useState('');
+
+      // 3. Configuration WebRTC P2P
+      const [roomName, setRoomName] = useState('github-roadmap-global-room');
+      const [connectedPeers, setConnectedPeers] = useState(1);
+      const yDocRef = useRef(null);
+
+      // Persistance dans le localStorage local
+      useEffect(() => {
+        localStorage.setItem('gh_roadmap_tasks', JSON.stringify(tasks));
+      }, [tasks]);
+
+      useEffect(() => {
+        localStorage.setItem('gh_config', JSON.stringify(ghConfig));
+      }, [ghConfig]);
+
+      // --- INITIALISATION DU CANAL WEBRTC P2P VIA YJS ---
+      useEffect(() => {
+        if (!window.Y || (!window.YWebrtc && !window.WebrtcProvider)) return;
+
+        const WebrtcProvider = window.YWebrtc?.WebrtcProvider || window.WebrtcProvider;
+        const ydoc = new window.Y.Doc();
+
+        const provider = new WebrtcProvider(roomName, ydoc, {
+          signaling: [
+            'wss://signaling.yjs.dev',
+            'wss://y-webrtc-signaling-eu.herokuapp.com',
+            'wss://y-webrtc-signaling-us.herokuapp.com'
+          ]
+        });
+
+        const yTasks = ydoc.getArray('tasks');
+
+        // Réception des modifications envoyées par les pairs en WebRTC
+        yTasks.observe(() => {
+          const remoteTasks = yTasks.toArray();
+          if (remoteTasks.length > 0) {
+            setTasks(remoteTasks);
+          }
+        });
+
+        // Suivi du nombre d'utilisateurs connectés au salon P2P
+        provider.on('peers', (event) => {
+          setConnectedPeers(event.webrtcPeers.length + 1);
+        });
+
+        yDocRef.current = { ydoc, yTasks, provider };
+
+        return () => {
+          provider.destroy();
+          ydoc.destroy();
+        };
+      }, [roomName]);
+
+      // Helper pour mettre à jour les tâches ET diffuser la modification aux pairs WebRTC
+      const updateTasksAndBroadcast = (newTasks) => {
+        setTasks(newTasks);
+        if (yDocRef.current && yDocRef.current.yTasks) {
+          const { ydoc, yTasks } = yDocRef.current;
+          ydoc.transact(() => {
+            yTasks.delete(0, yTasks.length);
+            yTasks.insert(0, newTasks);
+          });
+        }
+      };
+
+      // --- INTERACTIONS DE REDIMENSIONNEMENT DES BLOCS DE TIMELINE ---
+      const handleMouseDown = (e, taskId, handle) => {
+        e.stopPropagation();
+        setResizing({ taskId, handle, startX: e.clientX });
+      };
+
+      const handleMouseMove = (e) => {
+        if (!resizing) return;
+        const deltaX = e.clientX - resizing.startX;
+        const dayWidth = 60; // Largeur d'une colonne de jour en px
+        const daysDelta = Math.round(deltaX / dayWidth);
+
+        if (daysDelta === 0) return;
+
+        const nextTasks = tasks.map(task => {
+          if (task.id !== resizing.taskId) return task;
+          if (resizing.handle === 'right') {
+            const newDuration = Math.max(1, task.duration + daysDelta);
+            return { ...task, duration: newDuration };
+          } else if (resizing.handle === 'left') {
+            const newStart = Math.max(1, task.startDay + daysDelta);
+            const newDuration = Math.max(1, task.duration - daysDelta);
+            return { ...task, startDay: newStart, duration: newDuration };
+          }
+          return task;
+        });
+
+        updateTasksAndBroadcast(nextTasks);
+      };
+
+      const handleMouseUp = () => setResizing(null);
+
+      // --- GESTION DES SOUS-TÂCHES ---
+      const toggleSubtask = (taskId, subtaskId) => {
+        const nextTasks = tasks.map(t => {
+          if (t.id !== taskId) return t;
+          return {
+            ...t,
+            subtasks: t.subtasks.map(st => st.id === subtaskId ? { ...st, done: !st.done } : st)
+          };
+        });
+        updateTasksAndBroadcast(nextTasks);
+      };
+
+      // --- API GITHUB (SAUVEGARDE & CHARGEMENT SUR DATA.JSON) ---
+      const loadFromGitHub = async () => {
+        if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) {
+          alert("Veuillez remplir les champs Owner, Repo et Token GitHub.");
+          return;
+        }
+        setSyncStatus('Chargement...');
+        try {
+          const res = await fetch(`https://api.github.com/repos/${ghConfig.owner}/${ghConfig.repo}/contents/${ghConfig.path}`, {
+            headers: {
+              'Authorization': `token ${ghConfig.token}`,
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          });
+          if (!res.ok) throw new Error(`Status ${res.status}`);
+          const fileData = await res.json();
+          const jsonTasks = JSON.parse(b64_to_utf8(fileData.content));
+          
+          updateTasksAndBroadcast(jsonTasks);
+          setSyncStatus('Chargé !');
+          setTimeout(() => setSyncStatus(''), 2000);
+        } catch (err) {
+          console.error(err);
+          setSyncStatus('Erreur');
+        }
+      };
+
+      const saveToGitHub = async () => {
+        if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) {
+          alert("Veuillez configurer vos accès GitHub.");
+          return;
+        }
+        setSyncStatus('Commit en cours...');
+        try {
+          const url = `https://api.github.com/repos/${ghConfig.owner}/${ghConfig.repo}/contents/${ghConfig.path}`;
+          const headers = {
+            'Authorization': `token ${ghConfig.token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+          };
+
+          let currentSha = null;
+          const getRes = await fetch(url, { headers });
+          if (getRes.ok) {
+            const data = await getRes.json();
+            currentSha = data.sha;
+          }
+
+          const body = {
+            message: `Update roadmap data ${new Date().toLocaleTimeString()}`,
+            content: utf8_to_b64(JSON.stringify(tasks, null, 2)),
+            ...(currentSha && { sha: currentSha })
+          };
+
+          const putRes = await fetch(url, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(body)
+          });
+
+          if (!putRes.ok) throw new Error(`Erreur PUT: ${putRes.status}`);
+          setSyncStatus('Commite dans data.json !');
+          setTimeout(() => setSyncStatus(''), 2500);
+        } catch (err) {
+          console.error(err);
+          setSyncStatus('Erreur de commit');
+        }
+      };
+
+      return (
+        <div className="p-6 max-w-[1600px] mx-auto min-h-screen flex flex-col gap-6" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
+          {/* Header principal */}
+          <header className="flex flex-wrap justify-between items-center bg-slate-900/90 border border-slate-800 p-5 rounded-2xl gap-4">
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+                  Roadmap WebRTC & GitHub
+                </h1>
+                <span className="px-2.5 py-1 text-xs rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  P2P Temps Réel: {connectedPeers} connecté(s)
+                </span>
+              </div>
+              <p className="text-sm text-slate-400 mt-1">Étirer/rétrécir les blocs en direct (synchronisé automatiquement entre navigateurs via WebRTC)</p>
+            </div>
+
+            {/* Formulaire de configuration GitHub */}
+            <div className="flex items-center gap-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800/80">
+              <input 
+                type="text" 
+                placeholder="Owner" 
+                value={ghConfig.owner} 
+                onChange={e => setGhConfig({...ghConfig, owner: e.target.value})}
+                className="bg-slate-900 text-xs px-2.5 py-1.5 rounded border border-slate-700 w-24 text-slate-200"
+              />
+              <input 
+                type="text" 
+                placeholder="Repo" 
+                value={ghConfig.repo} 
+                onChange={e => setGhConfig({...ghConfig, repo: e.target.value})}
+                className="bg-slate-900 text-xs px-2.5 py-1.5 rounded border border-slate-700 w-28 text-slate-200"
+              />
+              <input 
+                type="password" 
+                placeholder="Token GitHub (PAT)" 
+                value={ghConfig.token} 
+                onChange={e => setGhConfig({...ghConfig, token: e.target.value})}
+                className="bg-slate-900 text-xs px-2.5 py-1.5 rounded border border-slate-700 w-32 text-slate-200"
+              />
+              
+              <button onClick={loadFromGitHub} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded border border-slate-600 transition">
+                Charger
+              </button>
+              <button onClick={saveToGitHub} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold rounded text-white transition">
+                Commiter data.json
+              </button>
+            </div>
+          </header>
+
+          {syncStatus && (
+            <div className="text-xs text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-4 py-2 rounded-xl">
+              Statut: {syncStatus}
+            </div>
+          )}
+
+          {/* Grille Gantt & Panneau de sous-tâches */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1">
+            {/* Vue Timeline (Gantt) */}
+            <div className="lg:col-span-3 bg-slate-900/50 border border-slate-800 rounded-2xl p-6 overflow-x-auto relative">
+              <div className="min-w-[900px]">
+                {/* En-tête des jours */}
+                <div className="grid grid-cols-16 border-b border-slate-800 pb-3 mb-6 text-xs text-slate-500 uppercase tracking-wider font-semibold">
+                  {Array.from({ length: 16 }).map((_, i) => (
+                    <div key={i} className="text-center">J{i + 1}</div>
+                  ))}
+                </div>
+
+                {/* Blocs de tâches étirables */}
+                <div className="space-y-4">
+                  {tasks.map(task => {
+                    const completedSub = task.subtasks.filter(s => s.done).length;
+                    const totalSub = task.subtasks.length;
+                    const pct = totalSub ? Math.round((completedSub / totalSub) * 100) : 0;
+
+                    return (
+                      <div key={task.id} className="relative h-14 bg-slate-950/40 rounded-xl border border-slate-800/60 flex items-center px-2">
+                        <div
+                          style={{
+                            width: `${task.duration * 60}px`,
+                            transform: `translateX(${(task.startDay - 1) * 60}px)`
+                          }}
+                          onClick={() => setSelectedTask(task)}
+                          className={`absolute h-10 rounded-lg bg-gradient-to-r ${task.color} p-2 shadow-lg cursor-pointer transition-all flex items-center justify-between group border border-white/20 hover:ring-2 ring-indigo-400/50 select-none`}
+                        >
+                          {/* Poignée de redimensionnement Gauche */}
+                          <div 
+                            onMouseDown={(e) => handleMouseDown(e, task.id, 'left')}
+                            className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/20 opacity-0 group-hover:opacity-100 rounded-l-lg hover:bg-white/60 transition"
+                          />
+
+                          <div className="truncate px-2 pointer-events-none">
+                            <span className="text-xs font-semibold text-white block truncate">{task.title}</span>
+                            <span className="text-[10px] text-white/80">{pct}% accompli</span>
+                          </div>
+
+                          {/* Poignée de redimensionnement Droite */}
+                          <div 
+                            onMouseDown={(e) => handleMouseDown(e, task.id, 'right')}
+                            className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/20 opacity-0 group-hover:opacity-100 rounded-r-lg hover:bg-white/60 transition"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Panneau de détail & sous-tâches */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between">
+              {selectedTask ? (
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="px-2.5 py-1 text-xs rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">
+                      {selectedTask.category}
+                    </span>
+                    <span className="text-xs text-slate-400">Durée: {selectedTask.duration} jours</span>
+                  </div>
+                  <h3 className="text-lg font-bold text-white mb-4">{selectedTask.title}</h3>
+
+                  <div className="mb-6">
+                    <h4 className="text-xs uppercase text-slate-400 font-semibold mb-3">Sous-tâches</h4>
+                    <div className="space-y-2">
+                      {selectedTask.subtasks.map(st => (
+                        <label key={st.id} className="flex items-center gap-3 p-2.5 bg-slate-950/50 rounded-xl border border-slate-800/80 cursor-pointer hover:border-slate-700 transition">
+                          <input 
+                            type="checkbox" 
+                            checked={st.done}
+                            onChange={() => toggleSubtask(selectedTask.id, st.id)}
+                            className="rounded accent-indigo-500 w-4 h-4"
+                          />
+                          <span className={`text-sm ${st.done ? 'line-through text-slate-500' : 'text-slate-200'}`}>
+                            {st.title}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="h-full flex items-center justify-center text-center text-slate-500 text-sm">
+                  Cliquez sur un bloc du planning pour afficher et cocher ses sous-tâches.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<RoadmapApp />);
+  </script>
+</body>
+</html>
