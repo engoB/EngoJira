@@ -30,10 +30,10 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Canvas Confetti -->
+  <!-- Canvas Confetti (Célébrations) -->
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
-  <!-- Yjs + y-webrtc -->
+  <!-- Yjs + y-webrtc (Temps réel P2P) -->
   <script src="https://cdn.jsdelivr.net/npm/yjs@13/dist/yjs.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/y-webrtc@10/dist/y-webrtc.js"></script>
 
@@ -125,23 +125,31 @@
     ];
 
     function AuraPlanApp() {
+      // THEME & ETATS GENERAUX
       const [isDark, setIsDark] = useState(true);
 
       const [projects, setProjects] = useState(() => {
-        const saved = localStorage.getItem('auraplan_projects_v15');
-        return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
+        try {
+          const saved = localStorage.getItem('auraplan_projects_v16');
+          const parsed = saved ? JSON.parse(saved) : null;
+          return Array.isArray(parsed) ? parsed : INITIAL_PROJECTS;
+        } catch(e) { return INITIAL_PROJECTS; }
       });
 
       const [planningEntries, setPlanningEntries] = useState(() => {
-        const saved = localStorage.getItem('auraplan_entries_v15');
-        return saved ? JSON.parse(saved) : INITIAL_PLANNING_ENTRIES;
+        try {
+          const saved = localStorage.getItem('auraplan_entries_v16');
+          const parsed = saved ? JSON.parse(saved) : null;
+          return Array.isArray(parsed) ? parsed : INITIAL_PLANNING_ENTRIES;
+        } catch(e) { return INITIAL_PLANNING_ENTRIES; }
       });
 
-      const [activeTab, setActiveTab] = useState('planning'); // 'roadmap' | 'kanban' | 'planning'
+      const [activeTab, setActiveTab] = useState('planning'); 
       const [selectedProjectId, setSelectedProjectId] = useState('proj-1');
       const [editingTask, setEditingTask] = useState(null);
       const [editingPlanningEntry, setEditingPlanningEntry] = useState(null);
 
+      // SCISSION SUR-MESURE
       const [splittingPlanningEntry, setSplittingPlanningEntry] = useState(null);
       const [splitSegments, setSplitSegments] = useState([0.5, 0.5]);
 
@@ -149,37 +157,33 @@
 
       const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
       const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
-
       const [isAddTaskFolded, setIsAddTaskFolded] = useState(true);
       const [isProjectEditFolded, setIsProjectEditFolded] = useState(true);
 
+      // KANBAN DRAG
       const [draggingKanbanTaskId, setDraggingKanbanTaskId] = useState(null);
       const [dragOverColumn, setDragOverColumn] = useState(null);
 
+      // MODALES
       const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
       const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
       const [isKanbanAddTaskModalOpen, setIsKanbanAddTaskModalOpen] = useState(false);
       const [isCreatePlanningModalOpen, setIsCreatePlanningModalOpen] = useState(false);
 
-      const [newProjectForm, setNewProjectForm] = useState({
-        title: '', category: 'Tech', startDate: TODAY_STR, duration: 10, color: 'from-indigo-600 to-violet-600'
-      });
-      const [newTaskForm, setNewTaskForm] = useState({
-        projectId: '', title: '', assignee: 'Alexandre M.', startDate: TODAY_STR, duration: 2, status: 'TODO'
-      });
-      const [newPlanningForm, setNewPlanningForm] = useState({
-        title: '', tag: 'Général', color: 'from-indigo-600 to-violet-600', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 0.5
-      });
+      const [newProjectForm, setNewProjectForm] = useState({ title: '', category: 'Tech', startDate: TODAY_STR, duration: 10, color: 'from-indigo-600 to-violet-600' });
+      const [newTaskForm, setNewTaskForm] = useState({ projectId: '', title: '', assignee: 'Alexandre M.', startDate: TODAY_STR, duration: 2, status: 'TODO' });
+      const [newPlanningForm, setNewPlanningForm] = useState({ title: '', planningTitle: '', tag: 'Général', color: 'from-indigo-600 to-violet-600', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 0.5 });
 
-      // DRAG ENGINES (Smooth & Snap)
+      // DRAG ENGINES (SMOOTH & SNAP)
       const [dragState, setDragState] = useState(null); 
       const [planningDragState, setPlanningDragState] = useState(null); 
       const hasDraggedPlanningTask = useRef(false);
       const dragAnimRef = useRef(null);
 
+      // SYNC GITHUB & WEBRTC
       const [ghConfig, setGhConfig] = useState(() => {
-        const saved = localStorage.getItem('gh_config');
-        return saved ? JSON.parse(saved) : { owner: '', repo: '', path: 'data.json', token: '' };
+        try { const saved = localStorage.getItem('gh_config'); return saved ? JSON.parse(saved) : { owner: '', repo: '', path: 'data.json', token: '' }; } 
+        catch(e) { return { owner: '', repo: '', path: 'data.json', token: '' }; }
       });
       const [syncStatus, setSyncStatus] = useState('');
       const [connectedPeers, setConnectedPeers] = useState(1);
@@ -190,7 +194,7 @@
         else document.documentElement.classList.remove('dark');
       }, [isDark]);
 
-      // CALENDRIER BORNES (AVEC MARGE SÉCURISÉE)
+      // CALENDRIER BORNES (AVEC MARGES SAFE 3J AVANT / 5J APRES)
       const { timelineStartDate, totalTimelineDays } = useMemo(() => {
         let minDate = parseDate(TODAY_STR);
         let maxDate = addDays(parseDate(TODAY_STR), 14);
@@ -235,10 +239,29 @@
         return weeksMap;
       }, [timelineStartDate, totalTimelineDays]);
 
+      const timelineMonths = useMemo(() => {
+        const monthsMap = [];
+        let currentMonthKey = '';
+        let currentMonthObj = null;
+
+        for (let i = 0; i < totalTimelineDays; i++) {
+          const dayDate = addDays(timelineStartDate, i);
+          const monthKey = `${dayDate.getFullYear()}-${dayDate.getMonth()}`;
+
+          if (monthKey !== currentMonthKey) {
+            currentMonthKey = monthKey;
+            currentMonthObj = { name: `${MONTH_NAMES_FR[dayDate.getMonth()]} ${dayDate.getFullYear()}`, daysCount: 0 };
+            monthsMap.push(currentMonthObj);
+          }
+          currentMonthObj.daysCount++;
+        }
+        return monthsMap;
+      }, [timelineStartDate, totalTimelineDays]);
+
       const allFlatTasks = useMemo(() => {
         const list = [];
-        projects.forEach(p => {
-          const safeProj = { id: p.id, title: p.title, category: p.category, color: p.color };
+        (projects || []).forEach(p => {
+          const safeProj = { id: p.id || 'p1', title: p.title || 'Projet', category: p.category || 'Général', color: p.color || 'from-indigo-600 to-violet-600' };
           (p.tasks || []).forEach(t => { list.push({ ...t, project: safeProj }); });
         });
         return list;
@@ -261,10 +284,17 @@
         return Array.from(set);
       }, [planningEntries, allFlatTasks]);
 
-      useEffect(() => localStorage.setItem('auraplan_projects_v15', JSON.stringify(projects)), [projects]);
-      useEffect(() => localStorage.setItem('auraplan_entries_v15', JSON.stringify(planningEntries)), [planningEntries]);
+      useEffect(() => localStorage.setItem('auraplan_projects_v16', JSON.stringify(projects)), [projects]);
+      useEffect(() => localStorage.setItem('auraplan_entries_v16', JSON.stringify(planningEntries)), [planningEntries]);
       useEffect(() => localStorage.setItem('gh_config', JSON.stringify(ghConfig)), [ghConfig]);
 
+      useEffect(() => {
+        if (activeTab === 'planning') {
+          setTimeout(focusCurrentSprint, 100);
+        }
+      }, [activeTab]);
+
+      // YJS WEBRTC SYNC
       useEffect(() => {
         try {
           if (!window.Y || !window.YWebrtc) return;
@@ -283,12 +313,14 @@
             if (remote.length > 0) setPlanningEntries(remote);
           });
 
-          provider.on('peers', (e) => setConnectedPeers(e.webrtcPeers.length + 1));
+          provider.on('peers', (e) => {
+            if(e && e.webrtcPeers) setConnectedPeers(e.webrtcPeers.length + 1);
+          });
           yDocRef.current = { ydoc, yProjects, yPlanning, provider };
 
           return () => { provider.destroy(); ydoc.destroy(); };
         } catch (e) {
-          console.warn("Yjs P2P non initialisé", e);
+          console.warn("Yjs P2P indisponible", e);
         }
       }, []);
 
@@ -318,29 +350,51 @@
         return Math.round((doneCount / project.tasks.length) * 100);
       };
 
+      const getProjectHealth = (project) => {
+        if (!project || !project.tasks || project.tasks.length === 0) return { status: 'NEUTRAL', label: '⚪ Pas de tâches' };
+        const pStart = parseDate(project.startDate);
+        const pEnd = addDays(pStart, Number(project.duration));
+
+        let maxTaskEnd = pStart;
+        project.tasks.forEach(t => {
+          const tEnd = addDays(parseDate(t.startDate || project.startDate), Number(t.duration || 1));
+          if (tEnd > maxTaskEnd) maxTaskEnd = tEnd;
+        });
+
+        const delay = diffDays(maxTaskEnd, pEnd);
+        if (delay > 0) return { status: 'DANGER', label: `🔴 Retard +${delay}j` };
+        if (delay < 0) return { status: 'SUCCESS', label: `🟢 Avance ${Math.abs(delay)}j` };
+        return { status: 'SUCCESS', label: '🟢 Dans les temps' };
+      };
+
       const fitAllTasks = useCallback(() => {
         const viewport = document.getElementById('timeline-viewport');
         if (!viewport) return;
-        const offsetLeft = activeTab === 'planning' ? 240 : 0;
-        const containerWidth = viewport.clientWidth - offsetLeft - 20;
-        const computedWidth = Math.max(24, Math.floor(containerWidth / totalTimelineDays));
+        const offsetLeft = activeTab === 'planning' ? 240 : (isLeftPanelOpen ? 320 : 32);
+        const offsetRight = (activeTab === 'roadmap' && isRightPanelOpen) ? 320 : 0;
+        const containerWidth = viewport.clientWidth - 20;
+
+        const computedWidth = Math.max(26, Math.floor(containerWidth / totalTimelineDays));
         setColumnWidth(computedWidth);
         viewport.scrollLeft = 0;
-      }, [totalTimelineDays, activeTab]);
+      }, [totalTimelineDays, activeTab, isLeftPanelOpen, isRightPanelOpen]);
 
       const focusCurrentSprint = useCallback(() => {
         const currentMonday = getMonday(new Date());
         const viewport = document.getElementById('timeline-viewport');
         if (!viewport) return;
-        const containerWidth = viewport.clientWidth - 240 - 20;
+
+        const containerWidth = viewport.clientWidth - 20;
         const computedWidth = Math.max(60, Math.floor(containerWidth / 14));
         setColumnWidth(computedWidth);
 
         const daysDiff = diffDays(currentMonday, timelineStartDate);
-        if (daysDiff >= 0) viewport.scrollLeft = daysDiff * computedWidth;
+        if (daysDiff >= 0) {
+          viewport.scrollLeft = daysDiff * computedWidth;
+        }
       }, [timelineStartDate]);
 
-      // Calcul des Lignes de Planning
+      // --- ALGORITHME DE PLANNING VERTICAL (AM A GAUCHE / PM A DROITE) ---
       const calculateCollaboratorLanes = (personEntries) => {
         const sorted = [...personEntries].sort((a, b) => {
           const tA = parseDate(a.startDate).getTime() + (a.slot === 'PM' ? 43200000 : 0);
@@ -349,6 +403,7 @@
         });
 
         const lanes = [];
+
         const placedEntries = sorted.map(entry => {
           const startDays = diffDays(parseDate(entry.startDate), timelineStartDate) + (entry.slot === 'PM' ? 0.5 : 0);
           const endDays = startDays + Number(entry.duration);
@@ -364,11 +419,20 @@
         });
 
         const totalLanes = Math.max(1, lanes.length);
-        return { placedEntries, totalLanes, rowHeight: totalLanes * 32 + 16 };
+        // Base height = 72px. Lignes supplémentaires = 36px.
+        return { placedEntries, totalLanes, rowHeight: Math.max(72, totalLanes * 36 + 16) };
       };
 
-      // ROADMAP DRAG & DROP SMOOTH
-      const handleRoadmapMouseDown = (e, projectId, action) => {
+      const getTasksCountForDay = (personEntries, dayDate) => {
+        return personEntries.filter(t => {
+          const tStart = parseDate(t.startDate);
+          const tEnd = addDays(tStart, Math.max(0, Math.ceil(t.duration) - 1));
+          return dayDate >= tStart && dayDate <= tEnd;
+        }).length;
+      };
+
+      // DRAG ROADMAP
+      const handleMouseDown = (e, projectId, action) => {
         e.stopPropagation(); e.preventDefault();
         const proj = projects.find(p => p.id === projectId);
         if (!proj) return;
@@ -426,7 +490,7 @@
         };
       }, [dragState, columnWidth, projects, timelineStartDate, broadcastProjects]);
 
-      // PLANNING DRAG & DROP SMOOTH
+      // DRAG PLANNING 0.5j PRECIS ET SANS OVERLAP MODAL
       const handlePlanningMouseDown = (e, entry, action = 'move') => {
         e.stopPropagation(); e.preventDefault();
         hasDraggedPlanningTask.current = false;
@@ -443,7 +507,8 @@
       useEffect(() => {
         const handleMouseMovePlanning = (e) => {
           if (!planningDragState) return;
-          if (Math.abs(e.clientX - planningDragState.startX) > 3) hasDraggedPlanningTask.current = true;
+          if (Math.abs(e.clientX - planningDragState.startX) > 4) hasDraggedPlanningTask.current = true;
+          
           if (dragAnimRef.current) cancelAnimationFrame(dragAnimRef.current);
 
           dragAnimRef.current = requestAnimationFrame(() => {
@@ -494,7 +559,7 @@
       const handleKanbanDragStart = (e, taskId) => {
         e.dataTransfer.setData('text/plain', taskId);
         e.dataTransfer.effectAllowed = 'move';
-        setTimeout(() => setDraggingKanbanTaskId(taskId), 0); // Rend le ghost HTML5 transparent sans bugger le drag
+        setTimeout(() => setDraggingKanbanTaskId(taskId), 0); 
       };
       const handleKanbanDragEnd = () => {
         setDraggingKanbanTaskId(null);
@@ -512,13 +577,23 @@
         handleKanbanDragEnd();
       };
 
-      // CREATION PLANNING (DOUBLE CLIC)
-      const handleCellDoubleClick = (person, dayDate, slot) => {
+      // CREATION PLANNING DIRECTE
+      const handleCellClickPlanning = (person, dayDate, slot) => {
         setNewPlanningForm({
-          title: '', tag: 'Général', color: 'from-indigo-600 to-violet-600',
-          assignee: person, startDate: formatDateIso(dayDate), slot: slot, duration: 0.5, notes: ''
+          title: '', planningTitle: '', tag: 'Général', color: 'from-indigo-600 to-violet-600',
+          assignee: person, startDate: formatDateIso(dayDate), slot: slot, duration: 0.5
         });
         setIsCreatePlanningModalOpen(true);
+      };
+
+      const applySuggestionToPlanningForm = (item) => {
+        setNewPlanningForm(prev => ({
+          ...prev,
+          title: item.title,
+          planningTitle: item.planningTitle || item.title,
+          tag: item.category || item.project?.category || 'Projet',
+          color: item.color || item.project?.color || 'from-indigo-600 to-violet-600'
+        }));
       };
 
       const handleCreatePlanningEntry = (e) => {
@@ -529,19 +604,36 @@
         setIsCreatePlanningModalOpen(false);
       };
 
+      const handleUpdatePlanningEntry = (updatedEntry) => {
+        broadcastPlanning(planningEntries.map(pe => pe.id === updatedEntry.id ? updatedEntry : pe));
+        setEditingPlanningEntry(null);
+      };
+
       const handleDeletePlanningEntry = (entryId) => {
         broadcastPlanning(planningEntries.filter(pe => pe.id !== entryId));
         setEditingPlanningEntry(null);
       };
 
-      // SCISSION PLANNING
-      const executePlanningSplit = (e) => {
+      // SCISSION PLANNING (MULTI-FRAGMENTS AU CHOIX)
+      const openSplitModal = (entry) => {
+        setSplittingPlanningEntry(entry);
+        if (entry.duration === 5.5) {
+          setSplitSegments([4, 0.5, 1]);
+        } else if (entry.duration > 1) {
+          const half = Number((Math.floor(entry.duration / 0.5 / 2) * 0.5).toFixed(1));
+          setSplitSegments([half, Number((entry.duration - half).toFixed(1))]);
+        } else {
+          setSplitSegments([0.5, 0.5]);
+        }
+      };
+
+      const executeFlexibleSplit = (e) => {
         e.preventDefault();
         if (!splittingPlanningEntry) return;
 
         const sum = splitSegments.reduce((a, b) => a + Number(b), 0);
         if (Math.abs(sum - splittingPlanningEntry.duration) > 0.01) {
-          alert(`La somme des tranches (${sum}j) doit être égale à la durée initiale (${splittingPlanningEntry.duration}j).`);
+          alert(`La somme des tranches (${sum}j) doit être strictement égale à la durée initiale (${splittingPlanningEntry.duration}j).`);
           return;
         }
 
@@ -553,6 +645,7 @@
           newEntries.push({
             id: `pe-${Date.now()}-part-${idx}`,
             title: `${splittingPlanningEntry.title} (Partie ${idx + 1}/${splitSegments.length})`,
+            planningTitle: splittingPlanningEntry.planningTitle ? `${splittingPlanningEntry.planningTitle} P${idx+1}` : `${splittingPlanningEntry.title} P${idx+1}`,
             tag: splittingPlanningEntry.tag || 'Planning',
             color: splittingPlanningEntry.color,
             assignee: splittingPlanningEntry.assignee,
@@ -576,10 +669,122 @@
         setEditingPlanningEntry(null);
       };
 
+      // GITHUB API
+      const saveToGitHub = async () => {
+        if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) {
+          alert("Veuillez renseigner vos identifiants GitHub");
+          return;
+        }
+        setSyncStatus('Commit...');
+        try {
+          const url = `https://api.github.com/repos/${ghConfig.owner}/${ghConfig.repo}/contents/${ghConfig.path}`;
+          const headers = { 'Authorization': `token ${ghConfig.token}`, 'Accept': 'application/vnd.github.v3+json' };
+          let currentSha = null;
+          const getRes = await fetch(url, { headers });
+          if (getRes.ok) currentSha = (await getRes.json()).sha;
+
+          const putRes = await fetch(url, {
+            method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: `Update AuraPlan ${new Date().toLocaleString('fr-FR')}`,
+              content: utf8_to_b64(JSON.stringify({ projects, planningEntries }, null, 2)),
+              ...(currentSha && { sha: currentSha })
+            })
+          });
+
+          if (!putRes.ok) throw new Error();
+          setSyncStatus('✅ Commité !');
+          setTimeout(() => setSyncStatus(''), 3000);
+          setIsConfigModalOpen(false);
+        } catch {
+          setSyncStatus('❌ Erreur');
+        }
+      };
+
+      const handleUpdateProjectField = (projId, field, value) => {
+        broadcastProjects(projects.map(p => p.id === projId ? { ...p, [field]: value } : p));
+      };
+
+      const handleCreateProject = (e) => {
+        e.preventDefault();
+        if (!newProjectForm.title.trim()) return;
+        const newProj = { id: `proj-${Date.now()}`, ...newProjectForm, duration: Number(newProjectForm.duration), tasks: [] };
+        broadcastProjects([...projects, newProj]);
+        setSelectedProjectId(newProj.id);
+        setIsProjectModalOpen(false);
+      };
+
+      const handleAddTask = (e) => {
+        e.preventDefault();
+        const targetProjId = newTaskForm.projectId || selectedProjectId;
+        if (!newTaskForm.title.trim() || !targetProjId) return;
+
+        const proj = projects.find(p => p.id === targetProjId);
+        const updatedProjects = projects.map(p => {
+          if (p.id !== targetProjId) return p;
+          return {
+            ...p,
+            tasks: [...(p.tasks || []), {
+              id: `t-${p.id}-${Date.now()}`, title: newTaskForm.title.trim(), assignee: newTaskForm.assignee,
+              startDate: newTaskForm.startDate || p.startDate, duration: Number(newTaskForm.duration) || 1, status: newTaskForm.status || 'TODO'
+            }]
+          };
+        });
+
+        broadcastProjects(updatedProjects);
+        setNewTaskForm({ projectId: '', title: '', assignee: 'Alexandre M.', startDate: TODAY_STR, duration: 2, status: 'TODO' });
+        setIsKanbanAddTaskModalOpen(false);
+      };
+
+      const handleUpdateTask = (updatedTask) => {
+        broadcastProjects(projects.map(p => ({ ...p, tasks: (p.tasks || []).map(t => t.id === updatedTask.id ? updatedTask : t) })));
+        setEditingTask(null);
+      };
+
+      const handleDeleteTask = (taskId) => {
+        broadcastProjects(projects.map(p => ({ ...p, tasks: (p.tasks || []).filter(t => t.id !== taskId) })));
+        setEditingTask(null);
+      };
+
+      const deleteProject = (projId) => {
+        if (confirm("Supprimer ce projet et ses tâches ?")) {
+          const updated = projects.filter(p => p.id !== projId);
+          broadcastProjects(updated);
+          if (selectedProjectId === projId) setSelectedProjectId(updated[0]?.id || null);
+        }
+      };
+
+      const toggleTaskDoneStatus = (taskId, isDone) => {
+        const newStatus = isDone ? 'DONE' : 'IN_PROGRESS';
+        let targetProj = null;
+
+        const updatedProjects = projects.map(p => {
+          const hasTask = (p.tasks || []).some(t => t.id === taskId);
+          if (hasTask) targetProj = p;
+          return { ...p, tasks: (p.tasks || []).map(t => t.id === taskId ? { ...t, status: newStatus } : t) };
+        });
+
+        broadcastProjects(updatedProjects);
+        if (isDone && targetProj) {
+          const freshProj = updatedProjects.find(p => p.id === targetProj.id);
+          if (freshProj && getProjectProgress(freshProj) === 100) triggerConfetti();
+        }
+      };
+
+      const rebaselineProject = (projectId) => {
+        const proj = projects.find(p => p.id === projectId);
+        if (!proj) return;
+        const span = getProjectActualSpan(proj);
+        if (!span) return;
+        broadcastProjects(projects.map(p => p.id === projectId ? { ...p, startDate: span.actualStartDate, duration: span.actualDuration } : p));
+      };
+
+      const selectedProject = projects.find(p => p.id === selectedProjectId);
+
       return (
         <div className={`flex flex-col h-screen overflow-hidden ${dragState || planningDragState ? 'dragging-active' : ''} ${isDark ? 'dark bg-aura-bg text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
           
-          {/* HEADER */}
+          {/* HEADER PRINCIPAL */}
           <header className={`border-b px-6 py-3 flex items-center justify-between shrink-0 ${isDark ? 'bg-aura-card border-aura-border' : 'bg-white border-slate-200 shadow-sm'}`}>
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-3">
@@ -596,7 +801,7 @@
 
             <div className="flex items-center gap-3">
               <button onClick={() => setIsDark(!isDark)} className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-2 ${isDark ? 'bg-aura-bg border-aura-border text-amber-300' : 'bg-slate-200 border-slate-300 text-indigo-900'}`}>
-                {isDark ? '☀️ Mode Clair' : '🌙 Mode Sombre'}
+                {isDark ? '☀️ Clair' : '🌙 Sombre'}
               </button>
               <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs text-emerald-400 font-medium ${isDark ? 'bg-aura-bg border-aura-border' : 'bg-slate-100 border-slate-200'}`}>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> {connectedPeers} P2P
@@ -611,10 +816,10 @@
               {activeTab === 'roadmap' && (
                 <div className="flex items-center gap-2 border-r border-aura-border pr-4">
                   <button onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)} className="px-3 py-1 bg-indigo-600/20 text-indigo-400 border border-indigo-500/40 rounded-lg font-bold">
-                    {isLeftPanelOpen ? '◀ Masquer Projets' : '▶ Afficher Projets'}
+                    {isLeftPanelOpen ? '◀ Projets' : '▶ Projets'}
                   </button>
                   <button onClick={() => setIsRightPanelOpen(!isRightPanelOpen)} className="px-3 py-1 bg-indigo-600/20 text-indigo-400 border border-indigo-500/40 rounded-lg font-bold">
-                    {isRightPanelOpen ? 'Masquer Inspecteur ▶' : 'Inspecteur ◀'}
+                    {isRightPanelOpen ? 'Inspecteur ▶' : '◀ Inspecteur'}
                   </button>
                 </div>
               )}
@@ -680,7 +885,7 @@
                       const isToday = formatDateIso(dayDate) === TODAY_STR;
                       const isMonday = dayDate.getDay() === 1;
                       return (
-                        <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r flex flex-col justify-center items-center text-[10px] ${isMonday ? 'border-l-2 border-l-indigo-500/50' : ''} ${isToday ? 'bg-indigo-500/25 text-indigo-400 font-black border-x-2 border-x-indigo-500' : 'text-slate-400'}`}>
+                        <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r flex flex-col justify-center items-center text-[10px] ${isMonday ? 'border-l-2 border-l-indigo-500/50' : ''} ${isToday ? 'bg-indigo-500/25 text-indigo-400 font-black border-x-2 border-x-indigo-500 shadow-indigo-500/20' : 'text-slate-400'}`}>
                           <span className="uppercase text-[9px]">{dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span>
                           <span>{dayDate.getDate()}</span>
                         </div>
@@ -732,21 +937,36 @@
                   </div>
                 </div>
 
-                {/* Panel Droit Inspecteur */}
+                {/* Panel Droit Inspecteur CLAIR ET RÉORGANISÉ */}
                 {isRightPanelOpen && selectedProject ? (
                   <div className={`w-80 border-l p-5 flex flex-col justify-between shrink-0 overflow-y-auto transition-all ${isDark ? 'bg-aura-card border-aura-border' : 'bg-white border-slate-200'}`}>
                     <div>
+                      {/* 1. Résumé */}
                       <div className="p-4 rounded-2xl bg-indigo-950/20 border border-indigo-500/30 shadow-lg mb-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">{selectedProject.category || 'Général'}</span>
-                          <button onClick={() => setIsRightPanelOpen(false)} className="text-slate-400 hover:text-white font-bold p-1 border rounded">▶</button>
-                        </div>
-                        <h2 className="font-extrabold text-sm">{selectedProject.title}</h2>
+                        <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">{selectedProject.category || 'Général'}</span>
+                        <h2 className="font-extrabold text-sm mt-3">{selectedProject.title}</h2>
                         {getProjectProgress(selectedProject) === 100 && (
-                          <div className="mt-3 p-2 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-bold text-center animate-bounce">🎉 Projet 100% Terminé !</div>
+                          <div className="mt-3 p-2 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-bold text-center animate-bounce">🎉 Projet Terminé !</div>
                         )}
                       </div>
 
+                      {/* 2. Santé Planning */}
+                      {(() => {
+                        const health = getProjectHealth(selectedProject);
+                        return (
+                          <div className={`mb-4 p-4 rounded-2xl border shadow-md space-y-2 ${health.status === 'DANGER' ? 'border-amber-500/30 bg-amber-950/20' : 'border-emerald-500/30 bg-emerald-950/20'}`}>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400 font-semibold">Santé Planning :</span>
+                              <span className="font-bold text-[10px]">{health.label}</span>
+                            </div>
+                            {health.status === 'DANGER' && (
+                              <button onClick={() => rebaselineProject(selectedProject.id)} className="w-full py-1.5 bg-amber-600/20 text-amber-400 border border-amber-500/40 font-bold rounded-xl text-xs transition shadow">⚡ Aligner Roadmap sur Planning</button>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* 3. Tâches Réelles (Cochable) */}
                       <div className="p-4 rounded-2xl bg-cyan-950/10 border border-cyan-500/20 mb-4">
                         <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-3">Tâches Réelles ({selectedProject.tasks?.length || 0})</h3>
                         <div className="space-y-2">
@@ -758,26 +978,29 @@
                                   <input type="checkbox" checked={isDone} onChange={(e) => toggleTaskDoneStatus(task.id, e.target.checked)} className="w-4 h-4 rounded accent-emerald-500" />
                                   <span className={`truncate ${isDone ? 'line-through opacity-50' : 'font-semibold'}`}>{task.title}</span>
                                 </label>
+                                <button onClick={() => setEditingTask(task)} className="px-2 py-1 text-[10px] font-semibold text-indigo-400 rounded border shrink-0">Éditer</button>
                               </div>
                             );
                           })}
                         </div>
                       </div>
 
-                      <div className="mb-4 rounded-2xl border border-indigo-500/30 bg-indigo-950/10 overflow-hidden transition-all">
-                        <button onClick={() => setIsAddTaskFolded(!isAddTaskFolded)} className="w-full px-4 py-3 flex items-center justify-between text-xs font-bold text-indigo-300 bg-indigo-950/40 hover:bg-indigo-900/30 transition">
+                      {/* 4. Formulaire Ajout Plié */}
+                      <div className="mb-4 rounded-2xl border border-indigo-500/30 bg-indigo-950/10 overflow-hidden">
+                        <button onClick={() => setIsAddTaskFolded(!isAddTaskFolded)} className="w-full px-4 py-3 flex items-center justify-between text-xs font-bold text-indigo-300 bg-indigo-950/40">
                           <span>+ Créer une Tâche</span><span>{isAddTaskFolded ? '▶' : '▼'}</span>
                         </button>
                         {!isAddTaskFolded && (
                           <form onSubmit={handleAddTask} className="p-4 space-y-2 border-t border-indigo-500/20 text-xs">
-                            <input type="text" placeholder="Titre de la tâche..." required value={newTaskForm.title} onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})} className="w-full text-xs p-2 rounded border bg-slate-900 border-slate-700 text-slate-100" />
+                            <input type="text" placeholder="Titre..." required value={newTaskForm.title} onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})} className="w-full text-xs p-2 rounded border bg-slate-900 border-slate-700 text-slate-100" />
                             <button type="submit" className="w-full py-2 bg-indigo-600 text-white font-bold rounded-xl shadow">+ Ajouter</button>
                           </form>
                         )}
                       </div>
 
-                      <div className="rounded-2xl border border-rose-500/40 bg-rose-950/20 overflow-hidden transition-all">
-                        <button onClick={() => setIsProjectEditFolded(!isProjectEditFolded)} className="w-full px-4 py-3 flex items-center justify-between text-xs font-bold text-rose-300 bg-rose-950/40 hover:bg-rose-900/30 transition">
+                      {/* 5. Danger Zone Pliée à la Fin */}
+                      <div className="rounded-2xl border border-rose-500/40 bg-rose-950/20 overflow-hidden">
+                        <button onClick={() => setIsProjectEditFolded(!isProjectEditFolded)} className="w-full px-4 py-3 flex items-center justify-between text-xs font-bold text-rose-300 bg-rose-950/40">
                           <span>⚠️ Modification & Danger Zone</span><span>{isProjectEditFolded ? '▶' : '▼'}</span>
                         </button>
                         {!isProjectEditFolded && (
@@ -838,7 +1061,7 @@
               </div>
             )}
 
-            {/* --- VUE 3 : PLANNING (HIGH PRECISION SO PLANNING STYLE) --- */}
+            {/* --- VUE 3 : PLANNING (HIGH PRECISION SO PLANNING STYLE + BADGES DANS EN-TÊTE + DRAG & SNAP) --- */}
             {activeTab === 'planning' && (
               <div id="timeline-viewport" className={`flex-1 flex flex-col overflow-x-auto relative ${isDark ? 'bg-aura-bg' : 'bg-slate-50'}`}>
                 
@@ -852,7 +1075,7 @@
                   </div>
                 </div>
 
-                {/* En-tête Jours (AM/PM + Badges) */}
+                {/* En-tête Jours (AM/PM + Badges de Nb Tâches) */}
                 <div className={`h-12 border-b flex items-center shrink-0 sticky top-6 z-40 ${isDark ? 'bg-slate-900/95 border-aura-border' : 'bg-slate-100 border-slate-200'}`} style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   <div className={`w-60 px-4 font-bold text-xs border-r sticky left-0 z-50 shadow-xl flex items-center justify-between ${isDark ? 'bg-slate-900 border-aura-border text-slate-300' : 'bg-white border-slate-200 text-slate-800'}`}>
                     <span>Collaborateurs</span>
@@ -862,19 +1085,33 @@
                     {Array.from({ length: totalTimelineDays }).map((_, i) => {
                       const dayDate = addDays(timelineStartDate, i);
                       const isToday = formatDateIso(dayDate) === TODAY_STR;
-                      const count = getTasksCountForDayGlobal(dayDate);
+                      
+                      // Calcul global des tâches sur ce jour précis
+                      const tasksCount = planningEntries.filter(t => {
+                        const s = parseDate(t.startDate);
+                        const e = addDays(s, Math.max(0, Math.ceil(t.duration) - 1));
+                        return dayDate >= s && dayDate <= e;
+                      }).length;
+
                       return (
                         <div key={i} style={{ width: `${columnWidth}px`, minWidth: `${columnWidth}px` }} className={`h-full border-r flex flex-col justify-between p-1 text-[10px] ${dayDate.getDay() === 1 ? 'border-l-2 border-l-indigo-500/50' : ''} ${isToday ? 'bg-indigo-500/20 text-indigo-300 font-black border-x-2 border-x-indigo-500' : 'text-slate-400 border-r-slate-700/40'}`}>
-                          <div className="flex items-center justify-between px-1 relative">
+                          
+                          <div className="relative flex items-center justify-between w-full px-1">
                             <div className="flex items-center gap-1">
-                              <span className="uppercase font-bold text-[9px]">{dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span>
-                              <span className="font-bold">{dayDate.getDate()}</span>
+                              <span className="uppercase text-[9px] font-bold">{dayDate.toLocaleDateString('fr-FR', { weekday: 'short' })}</span>
+                              <span className="font-black text-xs">{dayDate.getDate()}</span>
                             </div>
-                            {count > 0 && <span className="absolute -top-1 -right-1 bg-indigo-600 text-white font-extrabold text-[8px] px-1.5 py-0.5 rounded-full shadow-lg z-50">{count}</span>}
+                            {/* BADGE TÂCHES DU JOUR */}
+                            {tasksCount > 0 && (
+                              <span className="bg-indigo-600 text-white font-extrabold text-[9px] px-1.5 py-0.5 rounded-full shadow-md z-50">
+                                {tasksCount}
+                              </span>
+                            )}
                           </div>
+
                           <div className="w-full flex text-[8px] font-mono text-slate-400 border-t border-slate-700/30 pt-0.5">
-                            <div className="w-1/2 text-center border-r border-slate-700/30 text-amber-400 font-bold">☀️ AM</div>
-                            <div className="w-1/2 text-center text-indigo-400 font-bold">🌙 PM</div>
+                            <div className="w-1/2 text-center border-r border-slate-700/30 text-amber-400 font-bold">AM</div>
+                            <div className="w-1/2 text-center text-indigo-400 font-bold">PM</div>
                           </div>
                         </div>
                       );
@@ -899,7 +1136,7 @@
                           </div>
                         </div>
 
-                        {/* Grille AM/PM */}
+                        {/* Grille AM/PM Découpée Verticalement */}
                         <div className="flex-1 relative">
                           <div className="absolute inset-0 flex pointer-events-none z-0">
                             {Array.from({ length: totalTimelineDays }).map((_, i) => {
@@ -907,41 +1144,53 @@
                               const isToday = formatDateIso(dayDate) === TODAY_STR;
                               const isMonday = dayDate.getDay() === 1;
                               return (
-                                <div key={i} style={{ width: `${columnWidth}px`, minWidth: `${columnWidth}px` }} className={`h-full border-r ${isMonday ? 'border-l-2 border-l-indigo-500/30' : ''} ${isToday ? 'bg-indigo-500/10 border-x-2 border-x-indigo-500/40' : 'border-r-slate-800/20'} flex relative`}>
-                                  <div onClick={() => handleCellClickPlanning(person, dayDate, 'AM')} className="w-1/2 border-r border-slate-700/20 bg-amber-500/[0.03] hover:bg-indigo-500/20 transition cursor-pointer group flex justify-center pointer-events-auto items-center"><span className="text-[9px] font-bold text-amber-400 opacity-0 group-hover:opacity-100">+ AM</span></div>
-                                  <div onClick={() => handleCellClickPlanning(person, dayDate, 'PM')} className="w-1/2 bg-indigo-500/[0.03] hover:bg-indigo-500/20 transition cursor-pointer group flex justify-center pointer-events-auto items-center"><span className="text-[9px] font-bold text-indigo-300 opacity-0 group-hover:opacity-100">+ PM</span></div>
+                                <div key={i} style={{ width: `${columnWidth}px`, minWidth: `${columnWidth}px` }} className={`h-full border-r ${isMonday ? 'border-l-2 border-l-indigo-500/30' : ''} ${isToday ? 'bg-indigo-500/10 border-x-2 border-x-indigo-500/40' : 'border-r-slate-800/20'} flex relative pointer-events-auto`}>
+                                  <div onClick={() => handleCellClickPlanning(person, dayDate, 'AM')} className="w-1/2 h-full border-r border-slate-700/20 hover:bg-indigo-500/20 transition cursor-crosshair group flex items-center justify-center">
+                                    <span className="text-[9px] font-bold text-amber-400 opacity-0 group-hover:opacity-100">+ AM</span>
+                                  </div>
+                                  <div onClick={() => handleCellClickPlanning(person, dayDate, 'PM')} className="w-1/2 h-full hover:bg-indigo-500/20 transition cursor-crosshair group flex items-center justify-center">
+                                    <span className="text-[9px] font-bold text-indigo-400 opacity-0 group-hover:opacity-100">+ PM</span>
+                                  </div>
                                 </div>
                               );
                             })}
                           </div>
 
-                          {/* Blocs Tâches Planning */}
+                          {/* Blocs Tâches Planning (Aimantés avec Ghosting Parfait) */}
                           <div className="relative w-full h-full z-10 pointer-events-none">
                             {placedEntries.map(entry => {
                               const isDraggingThis = planningDragState && planningDragState.entryId === entry.id;
                               
                               let leftPx = entry.startDays * columnWidth;
                               let widthPx = entry.duration * columnWidth;
-                              const topPx = entry.laneIndex * 32 + 8; // Hauteur bloc 24px (h-6) + 8px margin = 32px
+                              const topPx = entry.laneIndex * 32 + 8; // Empilement vertical simple
                               
                               let tooltipText = `${formatDateFr(entry.startDate)} (${entry.slot === 'PM' ? '🌙 PM' : '☀️ AM'}) • ${entry.duration}j`;
 
                               if (isDraggingThis) {
-                                if (planningDragState.action === 'move') leftPx += planningDragState.pixelOffset;
-                                else if (planningDragState.action === 'resize-right') widthPx += planningDragState.pixelOffset;
-                                else if (planningDragState.action === 'resize-left') { leftPx += planningDragState.pixelOffset; widthPx -= planningDragState.pixelOffset; }
+                                if (planningDragState.action === 'move') {
+                                  leftPx += planningDragState.pixelOffset;
+                                } else if (planningDragState.action === 'resize-right') {
+                                  widthPx += planningDragState.pixelOffset;
+                                } else if (planningDragState.action === 'resize-left') { 
+                                  leftPx += planningDragState.pixelOffset; 
+                                  widthPx -= planningDragState.pixelOffset; 
+                                }
                                 tooltipText = `${formatDateFr(planningDragState.snappedStartDate)} (${planningDragState.snappedSlot === 'PM' ? '🌙 PM' : '☀️ AM'}) • ${planningDragState.snappedDuration}j`;
                               }
 
                               return (
                                 <React.Fragment key={entry.id}>
                                   {isDraggingThis && (
-                                    <div style={{ left: `${planningDragState.snappedStartDays * columnWidth}px`, width: `${planningDragState.snappedDuration * columnWidth}px`, top: `${topPx}px` }} className="absolute h-6 rounded-md bg-indigo-950/80 border-2 border-dashed border-indigo-400 opacity-40 z-0 pointer-events-none" />
+                                    <div style={{ left: `${planningDragState.snappedStartDays * columnWidth}px`, width: `${planningDragState.snappedDuration * columnWidth}px`, top: `${topPx}px` }} className="absolute h-6 rounded-md bg-indigo-950/80 border-2 border-dashed border-indigo-400 opacity-40 z-0 pointer-events-none transition-all duration-75" />
                                   )}
                                   <div
                                     style={{ left: `${leftPx}px`, width: `${widthPx}px`, top: `${topPx}px` }}
                                     onMouseDown={(e) => handlePlanningMouseDown(e, entry, 'move')}
-                                    onClick={() => { if (!hasDraggedPlanningTask.current) setEditingPlanningEntry(entry); }}
+                                    onClick={(e) => { 
+                                      if (hasDraggedPlanningTask.current) { e.preventDefault(); e.stopPropagation(); return; }
+                                      setEditingPlanningEntry(entry); 
+                                    }}
                                     className={`absolute h-6 rounded-md bg-gradient-to-r ${entry.color || 'from-indigo-600 to-violet-600'} px-2 flex items-center justify-between text-[9px] font-bold text-white shadow-md cursor-grab active:cursor-grabbing hover:brightness-110 truncate border border-white/20 select-none group transition-shadow pointer-events-auto ${isDraggingThis ? 'ring-2 ring-indigo-400 z-30 scale-[1.02] shadow-xl opacity-95' : ''}`}
                                   >
                                     <div onMouseDown={(e) => handlePlanningMouseDown(e, entry, 'resize-left')} className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize bg-white/30 opacity-0 group-hover:opacity-100 rounded-l-md hover:bg-white/70 transition" />
@@ -949,14 +1198,15 @@
                                     <div className="truncate flex items-center justify-between w-full pointer-events-none">
                                       <span className="truncate flex items-center gap-1">
                                         <span>{entry.slot === 'PM' ? '🌙' : '☀️'}</span>
-                                        <span className="truncate">{entry.title}</span>
+                                        <span className="truncate">{entry.planningTitle || entry.title}</span>
                                       </span>
-                                      {entry.duration > 0.5 && <span className="opacity-90 font-mono bg-black/40 px-1 rounded ml-1 shrink-0">{entry.duration}j</span>}
+                                      {/* Ne montre la durée que si la tâche est >= 1j pour ne pas surcharger les demi-journées */}
+                                      {entry.duration >= 1 && <span className="opacity-90 font-mono bg-black/40 px-1 rounded ml-1 shrink-0">{entry.duration}j</span>}
                                     </div>
 
                                     <div onMouseDown={(e) => handlePlanningMouseDown(e, entry, 'resize-right')} className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize bg-white/30 opacity-0 group-hover:opacity-100 rounded-r-md hover:bg-white/70 transition" />
                                     
-                                    {isDraggingThis && <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500 text-slate-100 text-[10px] font-mono px-2 py-0.5 rounded shadow-2xl z-40 whitespace-nowrap">📅 {tooltipText}</div>}
+                                    {isDraggingThis && <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-900 border border-indigo-500 text-slate-100 text-[10px] font-mono px-2 py-0.5 rounded shadow-2xl z-40 whitespace-nowrap">📅 {tooltipText}</div>}
                                   </div>
                                 </React.Fragment>
                               );
@@ -981,7 +1231,7 @@
                 </div>
                 <form onSubmit={handleCreatePlanningEntry} className="space-y-4 text-xs">
                   <div className="p-3 bg-indigo-950/30 border border-indigo-500/30 rounded-xl space-y-1">
-                    <label className="block font-bold text-indigo-300 text-[11px]">⚡ Copier un projet/tâche existant :</label>
+                    <label className="block font-bold text-indigo-300 text-[11px]">⚡ Copier depuis la Roadmap :</label>
                     <select 
                       onChange={(e) => {
                         const val = e.target.value;
@@ -992,12 +1242,13 @@
                       }}
                       className="w-full bg-slate-900 border border-indigo-500/40 p-2 rounded-lg text-slate-200"
                     >
-                      <option value="">-- Choisir un modèle --</option>
+                      <option value="">-- Assistant Auto-Saisie --</option>
                       <optgroup label="Projets">{projects.map(p => <option key={p.id} value={`proj:${p.id}`}>{p.title}</option>)}</optgroup>
                       <optgroup label="Tâches">{allFlatTasks.map(t => <option key={t.id} value={`task:${t.id}`}>{t.title}</option>)}</optgroup>
                     </select>
                   </div>
                   <input type="text" required placeholder="Titre..." value={newPlanningForm.title} onChange={e => setNewPlanningForm({...newPlanningForm, title: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100 font-bold" />
+                  <input type="text" placeholder="Nom court pour le planning (optionnel)" value={newPlanningForm.planningTitle} onChange={e => setNewPlanningForm({...newPlanningForm, planningTitle: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-indigo-500/40 text-slate-100" />
                   <div className="grid grid-cols-2 gap-3">
                     <input type="text" placeholder="Tag..." value={newPlanningForm.tag} onChange={e => setNewPlanningForm({...newPlanningForm, tag: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
                     <select value={newPlanningForm.color} onChange={e => setNewPlanningForm({...newPlanningForm, color: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100">{COLOR_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.name}</option>)}</select>
@@ -1013,7 +1264,7 @@
             </div>
           )}
 
-          {/* MODAL 2 : ÉDITION / MODIFICATION ENTRÉE PLANNING */}
+          {/* MODAL 2 : ÉDITION ENTRÉE PLANNING */}
           {editingPlanningEntry && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl text-slate-100">
@@ -1023,6 +1274,7 @@
                 </div>
                 <div className="space-y-4 text-xs">
                   <input type="text" value={editingPlanningEntry.title} onChange={e => setEditingPlanningEntry({...editingPlanningEntry, title: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100 font-bold" />
+                  <input type="text" placeholder="Nom court pour le planning (optionnel)" value={editingPlanningEntry.planningTitle || ''} onChange={e => setEditingPlanningEntry({...editingPlanningEntry, planningTitle: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-indigo-500/40 text-slate-100" />
                   <div className="grid grid-cols-2 gap-3">
                     <input type="date" value={editingPlanningEntry.startDate || TODAY_STR} onChange={e => setEditingPlanningEntry({...editingPlanningEntry, startDate: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
                     <select value={editingPlanningEntry.slot || 'AM'} onChange={e => setEditingPlanningEntry({...editingPlanningEntry, slot: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100"><option value="AM">☀️ Matin (AM)</option><option value="PM">🌙 Après-midi (PM)</option></select>
@@ -1032,7 +1284,7 @@
                     <input type="text" value={editingPlanningEntry.assignee} onChange={e => setEditingPlanningEntry({...editingPlanningEntry, assignee: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
                   </div>
                   {editingPlanningEntry.duration > 0.5 && (
-                    <button type="button" onClick={() => openSplitModal(editingPlanningEntry)} className="w-full py-2 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 font-semibold rounded-xl text-center">✂️ Scinder l'entrée en tranches (0.5j)</button>
+                    <button type="button" onClick={() => openSplitModal(editingPlanningEntry)} className="w-full py-2 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 font-semibold rounded-xl text-center">✂️ Scinder l'entrée en tranches (0.5j minimum)</button>
                   )}
                   <div className="flex justify-between items-center pt-4 border-t border-slate-700">
                     <button onClick={() => handleDeletePlanningEntry(editingPlanningEntry.id)} className="text-rose-400 font-semibold">Supprimer</button>
@@ -1046,7 +1298,7 @@
             </div>
           )}
 
-          {/* MODAL 3 : SCISSION PLANNING */}
+          {/* MODAL 3 : SCISSION PLANNING (TRANCHES) */}
           {splittingPlanningEntry && (
             <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
               <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl text-slate-100">
@@ -1074,6 +1326,28 @@
                     <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl shadow">Découper la tâche</button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL 4 : CONFIGURATION GITHUB */}
+          {isConfigModalOpen && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl text-slate-100">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-bold">⚙️ Config GitHub Sync</h3>
+                  <button onClick={() => setIsConfigModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+                </div>
+                <div className="space-y-4 text-xs">
+                  <input type="text" placeholder="Owner" value={ghConfig.owner} onChange={e => setGhConfig({...ghConfig, owner: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
+                  <input type="text" placeholder="Repo" value={ghConfig.repo} onChange={e => setGhConfig({...ghConfig, repo: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
+                  <input type="password" placeholder="Token PAT" value={ghConfig.token} onChange={e => setGhConfig({...ghConfig, token: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
+                  {syncStatus && <div className="text-indigo-400 font-semibold">{syncStatus}</div>}
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
+                    <button onClick={() => setIsConfigModalOpen(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl">Fermer</button>
+                    <button onClick={saveToGitHub} className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold">Commiter data.json</button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
