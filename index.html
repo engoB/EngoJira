@@ -30,7 +30,7 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Yjs + y-webrtc (Temps réel P2P) -->
+  <!-- Yjs + y-webrtc (Temps réel P2P sans serveur) -->
   <script src="https://cdn.jsdelivr.net/npm/yjs@13/dist/yjs.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/y-webrtc@10/dist/y-webrtc.js"></script>
 
@@ -93,7 +93,7 @@
 
     const TODAY_STR = formatDateIso(new Date());
 
-    // DONNÉES INITIALES ROADMAP & KANBAN (PROJETS & TÂCHES PRINCIPALES)
+    // DONNÉES INITIALES ROADMAP & KANBAN (PROJETS)
     const INITIAL_PROJECTS = [
       {
         id: 'proj-1',
@@ -135,13 +135,13 @@
 
       // ÉTATS DES PROJETS (ROADMAP & KANBAN)
       const [projects, setProjects] = useState(() => {
-        const saved = localStorage.getItem('auraplan_projects_v10');
+        const saved = localStorage.getItem('auraplan_projects_v11');
         return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
       });
 
       // ÉTATS DU PLANNING (INDÉPENDANT)
       const [planningEntries, setPlanningEntries] = useState(() => {
-        const saved = localStorage.getItem('auraplan_entries_v10');
+        const saved = localStorage.getItem('auraplan_entries_v11');
         return saved ? JSON.parse(saved) : INITIAL_PLANNING_ENTRIES;
       });
 
@@ -154,7 +154,7 @@
       const [splittingPlanningEntry, setSplittingPlanningEntry] = useState(null);
       const [splitSegments, setSplitSegments] = useState([1, 1]);
 
-      const [columnWidth, setColumnWidth] = useState(90);
+      const [columnWidth, setColumnWidth] = useState(100);
 
       // Contrôle Panneaux Gauche & Droit (Roadmap)
       const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
@@ -206,29 +206,32 @@
         else document.documentElement.classList.remove('dark');
       }, [isDark]);
 
-      // CALENDRIER & BORNES DYNAMIQUES
+      // CALENDRIER & BORNES DYNAMIQUES AVEC MARGES DE SÉCURITÉ (FIT ALL SAFE)
       const { timelineStartDate, totalTimelineDays } = useMemo(() => {
         let minDate = parseDate(TODAY_STR);
         let maxDate = addDays(parseDate(TODAY_STR), 30);
 
-        projects.forEach(p => {
-          const pStart = parseDate(p.startDate);
-          const pEnd = addDays(pStart, Math.ceil(p.duration));
-          if (pStart < minDate) minDate = pStart;
-          if (pEnd > maxDate) maxDate = pEnd;
-        });
+        if (activeTab === 'roadmap' || activeTab === 'kanban') {
+          projects.forEach(p => {
+            const pStart = parseDate(p.startDate);
+            const pEnd = addDays(pStart, Math.ceil(p.duration));
+            if (pStart < minDate) minDate = pStart;
+            if (pEnd > maxDate) maxDate = pEnd;
+          });
+        } else if (activeTab === 'planning') {
+          planningEntries.forEach(pe => {
+            const pStart = parseDate(pe.startDate);
+            const pEnd = addDays(pStart, Math.ceil(pe.duration));
+            if (pStart < minDate) minDate = pStart;
+            if (pEnd > maxDate) maxDate = pEnd;
+          });
+        }
 
-        planningEntries.forEach(pe => {
-          const pStart = parseDate(pe.startDate);
-          const pEnd = addDays(pStart, Math.ceil(pe.duration));
-          if (pStart < minDate) minDate = pStart;
-          if (pEnd > maxDate) maxDate = pEnd;
-        });
-
-        const mondayStart = getMonday(minDate);
-        const requiredDays = diffDays(maxDate, mondayStart) + 20;
+        // MARGE CONFORTABLE : 3 jours avant le début, 5 jours après la fin
+        const mondayStart = getMonday(addDays(minDate, -3));
+        const requiredDays = diffDays(addDays(maxDate, 5), mondayStart);
         return { timelineStartDate: mondayStart, totalTimelineDays: Math.max(30, requiredDays) };
-      }, [projects, planningEntries]);
+      }, [projects, planningEntries, activeTab]);
 
       // En-tête des Semaines
       const timelineWeeks = useMemo(() => {
@@ -270,14 +273,39 @@
         return monthsMap;
       }, [timelineStartDate, totalTimelineDays]);
 
-      // Flat list des tâches Kanban/Roadmap
+      // Flat list des tâches avec protection crash
       const allFlatTasks = useMemo(() => {
         const list = [];
         projects.forEach(p => {
-          (p.tasks || []).forEach(t => { list.push({ ...t, project: p }); });
+          const safeProj = {
+            id: p.id || 'proj-default',
+            title: p.title || 'Projet',
+            category: p.category || 'Général',
+            color: p.color || 'from-indigo-600 to-violet-600'
+          };
+          (p.tasks || []).forEach(t => {
+            list.push({ ...t, project: safeProj });
+          });
         });
         return list;
       }, [projects]);
+
+      // Regroupement Kanban (Isolation de la scission)
+      const kanbanGroupedTasks = useMemo(() => {
+        const map = new Map();
+        allFlatTasks.forEach(task => {
+          const rootKey = task.parentId || task.id.replace(/-part-\d+$/, '');
+          if (!map.has(rootKey)) {
+            map.set(rootKey, { ...task });
+          } else {
+            const existing = map.get(rootKey);
+            if (task.status === 'IN_PROGRESS' && existing.status === 'TODO') {
+              existing.status = 'IN_PROGRESS';
+            }
+          }
+        });
+        return Array.from(map.values());
+      }, [allFlatTasks]);
 
       // Collaborateurs uniques
       const collaborators = useMemo(() => {
@@ -289,32 +317,36 @@
       }, [planningEntries, allFlatTasks]);
 
       // Persistance
-      useEffect(() => localStorage.setItem('auraplan_projects_v10', JSON.stringify(projects)), [projects]);
-      useEffect(() => localStorage.setItem('auraplan_entries_v10', JSON.stringify(planningEntries)), [planningEntries]);
+      useEffect(() => localStorage.setItem('auraplan_projects_v11', JSON.stringify(projects)), [projects]);
+      useEffect(() => localStorage.setItem('auraplan_entries_v11', JSON.stringify(planningEntries)), [planningEntries]);
       useEffect(() => localStorage.setItem('gh_config', JSON.stringify(ghConfig)), [ghConfig]);
 
       // WebRTC Sync (Yjs)
       useEffect(() => {
-        if (!window.Y || !window.YWebrtc) return;
-        const ydoc = new window.Y.Doc();
-        const provider = new window.YWebrtc.WebrtcProvider('auraplan-studio-room-2026', ydoc);
-        const yProjects = ydoc.getArray('projects');
-        const yPlanning = ydoc.getArray('planningEntries');
+        try {
+          if (!window.Y || !window.YWebrtc) return;
+          const ydoc = new window.Y.Doc();
+          const provider = new window.YWebrtc.WebrtcProvider('auraplan-studio-room-2026', ydoc);
+          const yProjects = ydoc.getArray('projects');
+          const yPlanning = ydoc.getArray('planningEntries');
 
-        yProjects.observe(() => {
-          const remote = yProjects.toArray();
-          if (remote.length > 0) setProjects(remote);
-        });
+          yProjects.observe(() => {
+            const remote = yProjects.toArray();
+            if (remote.length > 0) setProjects(remote);
+          });
 
-        yPlanning.observe(() => {
-          const remote = yPlanning.toArray();
-          if (remote.length > 0) setPlanningEntries(remote);
-        });
+          yPlanning.observe(() => {
+            const remote = yPlanning.toArray();
+            if (remote.length > 0) setPlanningEntries(remote);
+          });
 
-        provider.on('peers', (e) => setConnectedPeers(e.webrtcPeers.length + 1));
-        yDocRef.current = { ydoc, yProjects, yPlanning, provider };
+          provider.on('peers', (e) => setConnectedPeers(e.webrtcPeers.length + 1));
+          yDocRef.current = { ydoc, yProjects, yPlanning, provider };
 
-        return () => { provider.destroy(); ydoc.destroy(); };
+          return () => { provider.destroy(); ydoc.destroy(); };
+        } catch (e) {
+          console.warn("Yjs sync non disponible", e);
+        }
       }, []);
 
       const broadcastProjects = useCallback((updated) => {
@@ -364,59 +396,28 @@
         return { status: 'SUCCESS', label: '🟢 Dans les temps' };
       };
 
-      // --- CALCUL DU FIT ALL DYNAMIQUE EXACT ---
+      // --- CALCUL DU FIT ALL DYNAMIQUE EXACT AVEC MARGES AÉRÉES ---
       const fitAllTasks = useCallback(() => {
         const viewport = document.getElementById('timeline-viewport');
         if (!viewport) return;
 
-        const containerWidth = viewport.getBoundingClientRect().width - 20;
+        const containerWidth = viewport.clientWidth - 20;
+        const computedWidth = Math.max(22, Math.floor(containerWidth / totalTimelineDays));
 
-        if (activeTab === 'roadmap') {
-          if (projects.length === 0) return;
-          let minD = parseDate(projects[0].startDate);
-          let maxD = addDays(minD, projects[0].duration);
+        setColumnWidth(computedWidth);
+        viewport.scrollLeft = 0;
+      }, [totalTimelineDays]);
 
-          projects.forEach(p => {
-            const s = parseDate(p.startDate);
-            const e = addDays(s, p.duration);
-            if (s < minD) minD = s;
-            if (e > maxD) maxD = e;
-          });
-
-          const spanDays = Math.max(1, diffDays(maxD, minD) + 2);
-          const computedWidth = Math.max(20, Math.floor(containerWidth / spanDays));
-          setColumnWidth(computedWidth);
-          viewport.scrollLeft = 0;
-        } else if (activeTab === 'planning') {
-          if (planningEntries.length === 0) return;
-          let minD = parseDate(planningEntries[0].startDate);
-          let maxD = addDays(minD, planningEntries[0].duration);
-
-          planningEntries.forEach(pe => {
-            const s = parseDate(pe.startDate);
-            const e = addDays(s, pe.duration);
-            if (s < minD) minD = s;
-            if (e > maxD) maxD = e;
-          });
-
-          const spanDays = Math.max(1, diffDays(maxD, minD) + 2);
-          const computedWidth = Math.max(24, Math.floor(containerWidth / spanDays));
-          setColumnWidth(computedWidth);
-          viewport.scrollLeft = 0;
-        }
-      }, [activeTab, projects, planningEntries]);
-
-      // SPRINT 2 SEMAINES FOCUS TEMPS RÉEL
+      // SPRINT 2 SEMAINES FOCUS TEMPS RÉEL (PAGES CENTRÉES AUPRÈS D'AUJOURD'HUI)
       const focusCurrentSprint = useCallback(() => {
         const currentMonday = getMonday(new Date());
         const viewport = document.getElementById('timeline-viewport');
         if (!viewport) return;
 
-        const containerWidth = viewport.getBoundingClientRect().width - 20;
-        const computedWidth = Math.max(40, Math.floor(containerWidth / 14));
+        const containerWidth = viewport.clientWidth - 20;
+        const computedWidth = Math.max(45, Math.floor(containerWidth / 14));
         setColumnWidth(computedWidth);
 
-        // Faire défiler vers le lundi courant
         const daysDiff = diffDays(currentMonday, timelineStartDate);
         if (daysDiff >= 0) {
           viewport.scrollLeft = daysDiff * computedWidth;
@@ -511,7 +512,7 @@
         };
       }, [dragState, columnWidth, projects, broadcastProjects]);
 
-      // DRAG ENGINE PLANNING DÉDIÉ (SE DÉPLACE DE FAÇON FLUIDE & SANS MODAL)
+      // DRAG ENGINE PLANNING FLUIDE (SANS DÉCLENCHEMENT DE MODAL INTEMPESTIF)
       const handlePlanningMouseDown = (e, entry, action = 'move') => {
         e.stopPropagation();
         e.preventDefault();
@@ -632,8 +633,8 @@
         broadcastProjects(updatedProjects);
       };
 
-      // OUVERTURE CREATION DÉDIÉE PLANNING AVEC ASSISTANT AUTOCOMPLETE
-      const handleCellDoubleClick = (person, dayDate, slot) => {
+      // OUVERTURE CRÉATION DÉDIÉE AU PLANNING D'UN CLIC / DOUBLE CLIC
+      const handleCellClickPlanning = (person, dayDate, slot) => {
         setNewPlanningForm({
           title: '',
           tag: 'Général',
@@ -672,7 +673,6 @@
         setEditingPlanningEntry(null);
       };
 
-      // AUTO-COMPLÉTATION DEPART DES PROJETS/TÂCHES EXISTANTES DANS LE FORMULAIRE PLANNING
       const applySuggestionToPlanningForm = (taskOrProject) => {
         setNewPlanningForm(prev => ({
           ...prev,
@@ -701,7 +701,7 @@
           newEntries.push({
             id: `pe-${Date.now()}-part-${idx}`,
             title: `${splittingPlanningEntry.title} (Partie ${idx + 1}/${splitSegments.length})`,
-            tag: splittingPlanningEntry.tag,
+            tag: splittingPlanningEntry.tag || 'Planning',
             color: splittingPlanningEntry.color,
             assignee: splittingPlanningEntry.assignee,
             startDate: formatDateIso(currDate),
@@ -729,7 +729,7 @@
         setEditingPlanningEntry(null);
       };
 
-      // GITHUB API SAVE
+      // SAUVEGARDE GITHUB REST API
       const saveToGitHub = async () => {
         if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) {
           alert("Veuillez renseigner vos identifiants dans ⚙️ Config GitHub");
@@ -845,7 +845,7 @@
       return (
         <div className={`flex flex-col h-screen overflow-hidden ${dragState || planningDragState ? 'dragging-active' : ''} ${isDark ? 'dark bg-aura-bg text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
           
-          {/* HEADER PRINCIPAL AVEC THEME SWITCHER */}
+          {/* HEADER PRINCIPAL */}
           <header className={`border-b px-6 py-3 flex items-center justify-between shrink-0 ${isDark ? 'bg-aura-card border-aura-border' : 'bg-white border-slate-200 shadow-sm'}`}>
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-3">
@@ -875,13 +875,13 @@
                   onClick={() => setActiveTab('planning')}
                   className={`px-4 py-1.5 rounded-lg transition ${activeTab === 'planning' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-indigo-500'}`}
                 >
-                  👥 Planning Collaborateurs (Dédiée 0.5j)
+                  👥 Planning Collaborateurs (AM/PM)
                 </button>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              {/* THEME SWITCHER CLAIR / SOMBRE */}
+              {/* THEME SWITCHER */}
               <button 
                 onClick={() => setIsDark(!isDark)}
                 className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-2 ${
@@ -1363,6 +1363,8 @@
                         <div className="flex-1 overflow-y-auto space-y-3 pr-1">
                           {colTasks.map(task => {
                             const isBeingDragged = draggingKanbanTaskId === task.id;
+                            const projectTitle = task.project?.title || 'Projet';
+                            const projectColor = task.project?.color || 'from-indigo-600 to-violet-600';
 
                             return (
                               <div 
@@ -1375,8 +1377,8 @@
                               >
                                 <div>
                                   <div className="flex items-center justify-between mb-2">
-                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded text-white bg-gradient-to-r ${task.project.color}`}>
-                                      {task.project.title}
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded text-white bg-gradient-to-r ${projectColor}`}>
+                                      {projectTitle}
                                     </span>
                                     <button 
                                       onClick={() => setEditingTask(task)} 
@@ -1393,7 +1395,7 @@
                                 </div>
 
                                 <div className="flex items-center justify-between pt-2 border-t border-slate-700/30 text-[10px] text-slate-400">
-                                  <span className="font-semibold">👤 {task.assignee}</span>
+                                  <span className="font-semibold">👤 {task.assignee || 'Non assigné'}</span>
                                   <span className="font-mono px-1.5 py-0.5 rounded border">
                                     Glisser ⠿
                                   </span>
@@ -1409,7 +1411,7 @@
               </div>
             )}
 
-            {/* VUE 3 : PLANNING COLLABORATEUR (DÉDIÉ 100% INDÉPENDANT & HIGH VISIBILITY) */}
+            {/* VUE 3 : PLANNING COLLABORATEUR (AM/PM PRECISION HIGH VISIBILITY) */}
             {activeTab === 'planning' && (
               <div id="timeline-viewport" className={`flex-1 flex flex-col overflow-x-auto relative ${isDark ? 'bg-aura-bg' : 'bg-slate-50'}`}>
                 
@@ -1435,7 +1437,7 @@
                 <div className={`h-12 border-b flex items-center shrink-0 sticky top-6 z-30 ${isDark ? 'bg-slate-900/95 border-aura-border' : 'bg-slate-100 border-slate-200'}`} style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   <div className={`w-60 px-4 font-bold text-xs border-r sticky left-0 z-30 shadow-xl flex items-center justify-between ${isDark ? 'bg-slate-900 border-aura-border text-slate-300' : 'bg-white border-slate-200 text-slate-800'}`}>
                     <span>Collaborateurs</span>
-                    <span className="text-[10px] text-indigo-400 font-mono font-bold">Planning OS</span>
+                    <span className="text-[10px] text-indigo-400 font-mono font-bold">0.5j AM/PM</span>
                   </div>
                   <div className="flex-1 flex">
                     {Array.from({ length: totalTimelineDays }).map((_, i) => {
@@ -1446,7 +1448,7 @@
                       return (
                         <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r flex flex-col justify-between p-1 text-[10px] ${
                           isMonday ? 'border-l-2 border-l-indigo-500/50 border-r-slate-700/40' : 'border-r-slate-700/40'
-                        } ${isToday ? 'bg-indigo-500/25 text-indigo-300 font-black border-x-2 border-x-indigo-500' : 'text-slate-400'}`}>
+                        } ${isToday ? 'bg-indigo-500/20 text-indigo-300 font-black border-x-2 border-x-indigo-500' : 'text-slate-400'}`}>
                           
                           <div className="flex items-center justify-between px-1">
                             <div className="flex items-center gap-1">
@@ -1457,8 +1459,8 @@
                           </div>
 
                           <div className="w-full flex text-[8px] font-mono text-slate-400 border-t border-slate-700/30 pt-0.5">
-                            <div className="w-1/2 text-center border-r border-slate-700/30 text-amber-400 font-bold">AM</div>
-                            <div className="w-1/2 text-center text-indigo-400 font-bold">PM</div>
+                            <div className="w-1/2 text-center border-r border-slate-700/30 text-amber-400 font-bold">☀️ AM</div>
+                            <div className="w-1/2 text-center text-indigo-400 font-bold">🌙 PM</div>
                           </div>
                         </div>
                       );
@@ -1466,7 +1468,7 @@
                   </div>
                 </div>
 
-                {/* Planning par Collaborateur (Tâches 100% Indépendantes) */}
+                {/* Planning par Collaborateur */}
                 <div className="flex-1 overflow-y-auto" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   {collaborators.map(person => {
                     const personEntries = planningEntries.filter(pe => pe.assignee === person);
@@ -1498,23 +1500,30 @@
                                   isMonday ? 'border-l-2 border-l-indigo-500/30 border-r-slate-800/20' : 'border-r-slate-800/20'
                                 } ${isToday ? 'bg-indigo-500/10 border-x-2 border-x-indigo-500/40' : ''} flex relative`}>
                                   
+                                  {/* Demi-cellule AM (Matin) */}
                                   <div 
-                                    onDoubleClick={() => handleCellDoubleClick(person, dayDate, 'AM')}
-                                    className="w-1/2 border-r border-slate-700/20 bg-amber-500/[0.03] hover:bg-indigo-500/20 transition cursor-crosshair pointer-events-auto"
-                                    title="Double-clic pour planifier le Matin (AM)"
-                                  />
+                                    onClick={() => handleCellClickPlanning(person, dayDate, 'AM')}
+                                    className="w-1/2 border-r border-slate-700/20 bg-amber-500/[0.03] hover:bg-indigo-500/20 transition cursor-pointer group flex items-center justify-center pointer-events-auto"
+                                    title="Cliquer pour planifier le Matin (AM)"
+                                  >
+                                    <span className="text-[9px] font-bold text-amber-400/0 group-hover:text-amber-300 transition">+ AM</span>
+                                  </div>
+
+                                  {/* Demi-cellule PM (Après-midi) */}
                                   <div 
-                                    onDoubleClick={() => handleCellDoubleClick(person, dayDate, 'PM')}
-                                    className="w-1/2 bg-indigo-500/[0.03] hover:bg-indigo-500/20 transition cursor-crosshair pointer-events-auto"
-                                    title="Double-clic pour planifier l'Après-Midi (PM)"
-                                  />
+                                    onClick={() => handleCellClickPlanning(person, dayDate, 'PM')}
+                                    className="w-1/2 bg-indigo-500/[0.03] hover:bg-indigo-500/20 transition cursor-pointer group flex items-center justify-center pointer-events-auto"
+                                    title="Cliquer pour planifier l'Après-Midi (PM)"
+                                  >
+                                    <span className="text-[9px] font-bold text-indigo-400/0 group-hover:text-indigo-300 transition">+ PM</span>
+                                  </div>
                                 </div>
                               );
                             })}
                           </div>
 
-                          {/* Blocs du Planning (Aimantés + Ghosting + Pas d'ouverture modal au Drag) */}
-                          <div className="relative w-full h-full z-10">
+                          {/* Blocs du Planning */}
+                          <div className="relative w-full h-full z-10 pointer-events-none">
                             {placedEntries.map(entry => {
                               const isDraggingThis = planningDragState && planningDragState.entryId === entry.id;
                               
@@ -1557,7 +1566,7 @@
                                         setEditingPlanningEntry(entry);
                                       }
                                     }}
-                                    className={`absolute h-7 rounded-lg bg-gradient-to-r ${entry.color || 'from-indigo-600 to-violet-600'} px-2 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-grab active:cursor-grabbing hover:brightness-110 truncate border border-white/20 select-none group transition-shadow ${
+                                    className={`absolute h-7 rounded-lg bg-gradient-to-r ${entry.color || 'from-indigo-600 to-violet-600'} px-2 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-grab active:cursor-grabbing hover:brightness-110 truncate border border-white/20 select-none group transition-shadow pointer-events-auto ${
                                       isDraggingThis ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-aura-bg z-30 shadow-2xl scale-105 opacity-95' : ''
                                     }`}
                                     title={`${entry.title} (${entry.tag || 'Planning'})`}
@@ -1612,9 +1621,9 @@
                 </div>
 
                 <form onSubmit={handleCreatePlanningEntry} className="space-y-4 text-xs">
-                  {/* Assistant de saisie rapide depuis les tâches/projets de la Roadmap */}
+                  {/* Assistant de saisie rapide */}
                   <div className="p-3 bg-indigo-950/30 border border-indigo-500/30 rounded-xl space-y-1">
-                    <label className="block font-bold text-indigo-300 text-[11px]">⚡ Saisir à partir d'un projet/tâche existant :</label>
+                    <label className="block font-bold text-indigo-300 text-[11px]">⚡ Remplir depuis un projet/tâche Roadmap :</label>
                     <select 
                       onChange={(e) => {
                         const val = e.target.value;
@@ -1630,12 +1639,12 @@
                       }}
                       className="w-full bg-slate-900 border border-indigo-500/40 p-2 rounded-lg text-slate-200 text-xs font-semibold"
                     >
-                      <option value="">-- Choisir pour remplir rapidement --</option>
+                      <option value="">-- Choisir pour copier le nom --</option>
                       <optgroup label="Projets Roadmap">
                         {projects.map(p => <option key={p.id} value={`proj:${p.id}`}>{p.title}</option>)}
                       </optgroup>
                       <optgroup label="Tâches Backlog">
-                        {allFlatTasks.map(t => <option key={t.id} value={`task:${t.id}`}>{t.title} ({t.project.title})</option>)}
+                        {allFlatTasks.map(t => <option key={t.id} value={`task:${t.id}`}>{t.title} ({t.project?.title || 'Projet'})</option>)}
                       </optgroup>
                     </select>
                   </div>
@@ -1939,7 +1948,7 @@
                     <span className={`font-mono font-bold ${
                       Math.abs(splitSegments.reduce((a,b) => a+Number(b), 0) - splittingPlanningEntry.duration) < 0.01 ? 'text-emerald-400' : 'text-rose-400'
                     }`}>
-                      {splitSegments.reduce((a,b) => a+Number(b), 0)} / {splittingPlanningPlanningEntry?.duration || splittingPlanningEntry.duration} jours
+                      {splitSegments.reduce((a,b) => a+Number(b), 0)} / {splittingPlanningEntry.duration} jours
                     </span>
                   </div>
 
