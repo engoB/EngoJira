@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AuraPlan Studio - Project & Resource OS</title>
+  <title>AuraPlan Studio - Operating System pour Projets & Planning</title>
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -63,6 +63,14 @@
       if (!isoStr) return '';
       const d = parseDate(isoStr);
       return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    };
+
+    const getWeekNumber = (d) => {
+      const date = new Date(d.getTime());
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+      const week1 = new Date(date.getFullYear(), 0, 4);
+      return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
     };
 
     const MONTH_NAMES_FR = [
@@ -132,11 +140,13 @@
       const [selectedProjectId, setSelectedProjectId] = useState('proj-1');
       const [editingTask, setEditingTask] = useState(null);
       const [splittingTask, setSplittingTask] = useState(null);
+      const [splitMode, setSplitMode] = useState('half_day');
       const [splitSegments, setSplitSegments] = useState([1, 1]);
 
-      const [columnWidth, setColumnWidth] = useState(110); // Largeur de colonne jour
+      const [columnWidth, setColumnWidth] = useState(110);
+      const [planningScope, setPlanningScope] = useState(14); // Sprint 2 semaines par défaut
 
-      // Panneaux Gauche & Droit (Roadmap)
+      // Contrôle des Panneaux Gauche & Droit (Roadmap)
       const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
       const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
 
@@ -151,13 +161,15 @@
       // Modales
       const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
       const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+      const [isKanbanAddTaskModalOpen, setIsKanbanAddTaskModalOpen] = useState(false);
+      const [kanbanTargetStatus, setKanbanTargetStatus] = useState('TODO');
 
       // Formulaires
       const [newProjectForm, setNewProjectForm] = useState({
         title: '', category: 'Tech', startDate: TODAY_STR, duration: 10, color: 'from-indigo-600 to-violet-600'
       });
       const [newTaskForm, setNewTaskForm] = useState({
-        title: '', planningTitle: '', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 2, status: 'TODO'
+        projectId: '', title: '', planningTitle: '', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 2, status: 'TODO'
       });
 
       // Drag Engines
@@ -165,7 +177,6 @@
       const [planningDragState, setPlanningDragState] = useState(null); // Planning Move / Resize
       const hasDraggedPlanningTask = useRef(false);
       const dragAnimRef = useRef(null);
-      const planningGridRef = useRef(null);
 
       // GitHub REST API & WebRTC P2P
       const [ghConfig, setGhConfig] = useState(() => {
@@ -195,10 +206,38 @@
           });
         });
 
-        const start = addDays(minDate, -2);
-        const requiredDays = diffDays(maxDate, start) + 25;
-        return { timelineStartDate: start, totalTimelineDays: Math.max(45, requiredDays) };
-      }, [projects]);
+        // Alignement du début au Lundi de la semaine courante
+        const dayOfWeek = minDate.getDay();
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+        const start = addDays(minDate, mondayOffset - 7);
+
+        const daysForScope = activeTab === 'planning' ? Math.max(planningScope, diffDays(maxDate, start) + 14) : diffDays(maxDate, start) + 25;
+        return { timelineStartDate: start, totalTimelineDays: Math.max(14, daysForScope) };
+      }, [projects, activeTab, planningScope]);
+
+      // Structuration des Semaines pour l'en-tête du Planning
+      const timelineWeeks = useMemo(() => {
+        const weeksMap = [];
+        let currentWeekNum = null;
+        let currentWeekObj = null;
+
+        for (let i = 0; i < totalTimelineDays; i++) {
+          const dayDate = addDays(timelineStartDate, i);
+          const weekNum = getWeekNumber(dayDate);
+
+          if (weekNum !== currentWeekNum) {
+            currentWeekNum = weekNum;
+            currentWeekObj = {
+              weekNum,
+              startDate: dayDate,
+              daysCount: 0
+            };
+            weeksMap.push(currentMonthObj = currentWeekObj);
+          }
+          currentWeekObj.daysCount++;
+        }
+        return weeksMap;
+      }, [timelineStartDate, totalTimelineDays]);
 
       // En-tête des Mois
       const timelineMonths = useMemo(() => {
@@ -360,7 +399,7 @@
         broadcastProjects(updatedProjects);
       };
 
-      // DUPLICATION DE TÂCHE SOPLANNING STYLE
+      // DUPLICATION DE TÂCHE
       const duplicateTask = (task) => {
         const newTask = {
           ...task,
@@ -411,7 +450,16 @@
         };
       };
 
-      // DRAG ENGINE ROADMAP (PROJETS)
+      // DÉCOMPTE DES TÂCHES PAR JOUR DANS L'EN-TÊTE DU PLANNING
+      const getTasksCountForDayGlobal = (dayDate) => {
+        return allFlatTasks.filter(t => {
+          const tStart = parseDate(t.startDate);
+          const tEnd = addDays(tStart, Math.ceil(t.duration) - 1);
+          return dayDate >= tStart && dayDate <= tEnd;
+        }).length;
+      };
+
+      // DRAG ENGINE ROADMAP
       const handleMouseDown = (e, projectId, action) => {
         e.stopPropagation();
         e.preventDefault();
@@ -470,21 +518,22 @@
         };
       }, [dragState, columnWidth, projects, broadcastProjects]);
 
-      // DRAG & RESIZE ENGINE PLANNING DÉDIONÉ (PRECISION SOURIS 1:1)
+      // DRAG ENGINE PLANNING AVEC SNAP AM/PM EXTREMEMENT PRÉCIS
       const handlePlanningMouseDown = (e, task, action = 'move') => {
         e.stopPropagation();
         e.preventDefault();
         hasDraggedPlanningTask.current = false;
 
-        const taskStartDays = diffDays(parseDate(task.startDate || TODAY_STR), timelineStartDate) + (task.slot === 'PM' ? 0.5 : 0);
+        const initialSlotOffset = task.slot === 'PM' ? 0.5 : 0;
+        const initialStartDays = diffDays(parseDate(task.startDate || TODAY_STR), timelineStartDate) + initialSlotOffset;
 
         setPlanningDragState({
           taskId: task.id,
           action,
           startX: e.clientX,
-          initialStartDays: taskStartDays,
+          initialStartDays,
           initialDuration: task.duration,
-          currentStartDays: taskStartDays,
+          currentStartDays: initialStartDays,
           currentDuration: task.duration,
           currentStartDate: task.startDate || TODAY_STR,
           currentSlot: task.slot || 'AM'
@@ -593,8 +642,8 @@
         broadcastProjects(updatedProjects);
       };
 
-      // FIT ALL ULTIME
-      const fitAllTasks = () => {
+      // FIT ALL ULTIME ADAPTÉ AUX PANNEAUX
+      const fitAllTasks = useCallback(() => {
         const container = document.getElementById('timeline-viewport');
         if (!container) return;
 
@@ -621,32 +670,14 @@
 
         setColumnWidth(calculatedWidth);
         container.scrollLeft = 0;
-      };
+      }, [projects]);
 
-      // CRÉATION DIRECTE SUR LA GRILLE PAR DOUBLE-CLIC
-      const handleCellDoubleClick = (person, dayDate, slot) => {
-        if (!selectedProjectId && projects.length === 0) return;
-        const targetProjId = selectedProjectId || projects[0].id;
-
-        const newTask = {
-          id: `t-${targetProjId}-${Date.now()}`,
-          title: 'Nouvelle Tâche',
-          planningTitle: 'Nouvelle Tâche',
-          assignee: person,
-          startDate: formatDateIso(dayDate),
-          slot: slot,
-          duration: 1,
-          status: 'TODO'
-        };
-
-        const updatedProjects = projects.map(p => {
-          if (p.id !== targetProjId) return p;
-          return { ...p, tasks: [...(p.tasks || []), newTask] };
-        });
-
-        broadcastProjects(updatedProjects);
-        setEditingTask(newTask);
-      };
+      // Auto Recalcul Fit All quand les panneaux s'ouvrent ou se ferment
+      useEffect(() => {
+        if (activeTab === 'roadmap') {
+          setTimeout(fitAllTasks, 150);
+        }
+      }, [isLeftPanelOpen, isRightPanelOpen, activeTab, fitAllTasks]);
 
       // INIT MODAL SCISSION PAR PAS STRICTS DE 0.5J
       const openSplitModal = (task) => {
@@ -774,12 +805,13 @@
 
       const handleAddTask = (e) => {
         e.preventDefault();
-        if (!newTaskForm.title.trim() || !selectedProjectId) return;
+        const targetProjId = newTaskForm.projectId || selectedProjectId;
+        if (!newTaskForm.title.trim() || !targetProjId) return;
 
-        const proj = projects.find(p => p.id === selectedProjectId);
+        const proj = projects.find(p => p.id === targetProjId);
 
         const updated = projects.map(p => {
-          if (p.id !== selectedProjectId) return p;
+          if (p.id !== targetProjId) return p;
           return {
             ...p,
             tasks: [
@@ -799,7 +831,8 @@
         });
 
         broadcastProjects(updated);
-        setNewTaskForm({ title: '', planningTitle: '', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 2, status: 'TODO' });
+        setNewTaskForm({ projectId: '', title: '', planningTitle: '', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 2, status: 'TODO' });
+        setIsKanbanAddTaskModalOpen(false);
       };
 
       const handleUpdateTask = (updatedTask) => {
@@ -826,6 +859,24 @@
           broadcastProjects(updated);
           if (selectedProjectId === projId) setSelectedProjectId(updated[0]?.id || null);
         }
+      };
+
+      // Double clic sur cellule planning pour créer une tâche dédiée
+      const handleCellDoubleClick = (person, dayDate, slot) => {
+        if (projects.length === 0) return;
+        const targetProj = projects.find(p => p.id === selectedProjectId) || projects[0];
+
+        setNewTaskForm({
+          projectId: targetProj.id,
+          title: 'Nouvelle Tâche',
+          planningTitle: 'Tâche Planifiée',
+          assignee: person,
+          startDate: formatDateIso(dayDate),
+          slot: slot,
+          duration: 1,
+          status: 'TODO'
+        });
+        setIsKanbanAddTaskModalOpen(true);
       };
 
       const selectedProject = projects.find(p => p.id === selectedProjectId);
@@ -910,10 +961,36 @@
                 </div>
               )}
 
-              <span className="font-semibold text-slate-300">Timeline Infinie :</span>
-              <span className="text-[10px] text-slate-300 font-mono bg-aura-bg px-2.5 py-1 rounded-lg border border-aura-border">
-                {totalTimelineDays} jours
-              </span>
+              {activeTab === 'planning' && (
+                <div className="flex items-center gap-2 border-r border-aura-border pr-4">
+                  <span className="font-semibold text-slate-300">Sprint :</span>
+                  <button 
+                    onClick={() => setPlanningScope(14)}
+                    className={`px-2.5 py-1 rounded-lg border font-bold text-[10px] transition ${
+                      planningScope === 14 ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-aura-card text-slate-400 border-aura-border hover:text-white'
+                    }`}
+                  >
+                    Sprint 2 Semaines (14j)
+                  </button>
+                  <button 
+                    onClick={() => setPlanningScope(30)}
+                    className={`px-2.5 py-0.5 rounded-lg border font-bold text-[10px] transition ${
+                      planningScope === 30 ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-aura-card text-slate-400 border-aura-border hover:text-white'
+                    }`}
+                  >
+                    1 Mois (30j)
+                  </button>
+                  <button 
+                    onClick={() => setPlanningScope(60)}
+                    className={`px-2.5 py-0.5 rounded-lg border font-bold text-[10px] transition ${
+                      planningScope === 60 ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-aura-card text-slate-400 border-aura-border hover:text-white'
+                    }`}
+                  >
+                    Vue Élargie (60j)
+                  </button>
+                </div>
+              )}
+
               {syncStatus && <span className="font-medium text-indigo-400">{syncStatus}</span>}
             </div>
 
@@ -931,7 +1008,7 @@
                   onClick={fitAllTasks}
                   className="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-bold rounded-xl transition shadow"
                 >
-                  🔍 Vue d'ensemble Globale (Fit All)
+                  🔍 Vue d'ensemble Adaptative (Fit All)
                 </button>
               </div>
             )}
@@ -1342,7 +1419,7 @@
               </>
             )}
 
-            {/* VUE 2 : KANBAN DRAG & DROP AVEC TÂCHES PAS DE DUPLICAT DE SCISSION */}
+            {/* VUE 2 : KANBAN DRAG & DROP AVEC BOUTON + CRÉER TÂCHE PAR COLONNE */}
             {activeTab === 'kanban' && (
               <div className="flex-1 p-6 bg-aura-bg overflow-x-auto">
                 <div className="grid grid-cols-4 gap-6 min-w-[1100px] h-full">
@@ -1365,10 +1442,23 @@
                         }`}
                       >
                         <div className={`flex items-center justify-between border-b-2 ${col.color} pb-3 mb-4`}>
-                          <h3 className="font-bold text-sm text-slate-200">{col.title}</h3>
-                          <span className="text-xs font-mono bg-aura-bg border border-aura-border px-2 py-0.5 rounded-full text-slate-400">
-                            {colTasks.length}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-sm text-slate-200">{col.title}</h3>
+                            <span className="text-xs font-mono bg-aura-bg border border-aura-border px-2 py-0.5 rounded-full text-slate-400">
+                              {colTasks.length}
+                            </span>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              setKanbanTargetStatus(col.id);
+                              setNewTaskForm({ projectId: selectedProjectId || (projects[0]?.id || ''), title: '', planningTitle: '', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 2, status: col.id });
+                              setIsKanbanAddTaskModalOpen(true);
+                            }}
+                            className="px-2 py-1 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/40 border border-indigo-500/30 rounded-lg text-xs font-bold transition"
+                            title="Ajouter une tâche dans cette colonne"
+                          >
+                            + Ajouter
+                          </button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto space-y-3 pr-1">
@@ -1399,7 +1489,7 @@
 
                                   <h4 className="text-xs font-bold text-slate-100 mb-1">{task.title}</h4>
                                   <p className="text-[10px] text-slate-400">
-                                    📅 {formatDateFr(task.startDate)} ({task.slot === 'PM' ? '🌙 PM' : '☀️ AM'}) • {task.duration}j
+                                    📅 {formatDateFr(task.startDate)} ({task.slot === 'PM' ? 'PM' : 'AM'}) • {task.duration}j
                                   </p>
                                 </div>
 
@@ -1420,20 +1510,40 @@
               </div>
             )}
 
-            {/* VUE 3 : PLANNING COLLABORATEUR AVEC COLONNE DÉPASSANTE TRÈS VISIBLE ET REFRESH D&D AM/PM */}
+            {/* VUE 3 : PLANNING COLLABORATEUR (EN-TÊTE SEMAINE & CRÉNEAUX NEON AM/PM & BADGE DÉCOMPTE) */}
             {activeTab === 'planning' && (
-              <div id="timeline-viewport" ref={planningGridRef} className="flex-1 flex flex-col overflow-x-auto bg-aura-bg">
-                {/* Header Calendrier avec Colonne Collaborateur STICKY FIGÉE */}
-                <div className="h-12 border-b border-aura-border flex items-center shrink-0 bg-slate-900/95 sticky top-0 z-30" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
+              <div id="timeline-viewport" className="flex-1 flex flex-col overflow-x-auto bg-aura-bg">
+                
+                {/* Ligne 1 : En-tête des Semaines (ex: Semaine 32, Semaine 33) */}
+                <div className="h-6 border-b border-aura-border flex bg-slate-900/90 sticky top-0 z-30" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
+                  <div className="w-60 px-4 font-bold text-[10px] text-slate-400 border-r border-aura-border sticky left-0 z-30 bg-slate-900 uppercase tracking-wider flex items-center">
+                    Semaines
+                  </div>
+                  <div className="flex-1 flex">
+                    {timelineWeeks.map((w, idx) => (
+                      <div 
+                        key={idx}
+                        style={{ width: `${w.daysCount * columnWidth}px` }}
+                        className="h-full border-r border-aura-border text-[10px] font-bold text-indigo-300 flex items-center justify-center uppercase tracking-wider bg-indigo-950/20"
+                      >
+                        Semaine {w.weekNum}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Ligne 2 : Header Calendrier Jours avec Badges du Nombre de Tâches Globale */}
+                <div className="h-12 border-b border-aura-border flex items-center shrink-0 bg-slate-900/95 sticky top-6 z-30" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   <div className="w-60 px-4 font-bold text-xs text-slate-300 border-r border-aura-border sticky left-0 z-30 bg-slate-900 shadow-xl flex items-center justify-between">
                     <span>Collaborateurs</span>
-                    <span className="text-[10px] text-indigo-400 font-mono">D&D 0.5j</span>
+                    <span className="text-[10px] text-indigo-400 font-mono">Sprint 14j</span>
                   </div>
                   <div className="flex-1 flex">
                     {Array.from({ length: totalTimelineDays }).map((_, i) => {
                       const dayDate = addDays(timelineStartDate, i);
                       const isToday = formatDateIso(dayDate) === TODAY_STR;
                       const isMonday = dayDate.getDay() === 1;
+                      const dayTaskCount = getTasksCountForDayGlobal(dayDate);
 
                       return (
                         <div key={i} style={{ width: `${columnWidth}px` }} className={`h-full border-r flex flex-col justify-between p-1 text-[10px] ${
@@ -1445,12 +1555,16 @@
                               <span className="uppercase font-bold text-[9px]">{dayDate.toLocaleDateString('fr-FR', { weekday: 'narrow' })}</span>
                               <span className="font-bold">{dayDate.getDate()}</span>
                             </div>
-                            {isToday && <span className="bg-indigo-600 text-white font-extrabold text-[8px] px-1 rounded">Auj.</span>}
+                            {dayTaskCount > 0 && (
+                              <span className="bg-indigo-600 text-white font-black text-[8px] px-1.5 py-0.2 rounded-full shadow">
+                                {dayTaskCount} T
+                              </span>
+                            )}
                           </div>
 
                           <div className="w-full flex text-[8px] font-mono text-slate-500 border-t border-aura-border/30 pt-0.5">
-                            <div className="w-1/2 text-center border-r border-aura-border/20">☀️ AM</div>
-                            <div className="w-1/2 text-center">🌙 PM</div>
+                            <div className="w-1/2 text-center border-r border-aura-border/20 text-amber-400/80 font-bold">AM</div>
+                            <div className="w-1/2 text-center text-indigo-400/80 font-bold">PM</div>
                           </div>
                         </div>
                       );
@@ -1458,7 +1572,7 @@
                   </div>
                 </div>
 
-                {/* Planning par Collaborateur avec Colonne Gauche STICKY FIGÉE */}
+                {/* Planning par Collaborateur */}
                 <div className="flex-1 overflow-y-auto" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   {collaborators.map(person => {
                     const personTasks = allFlatTasks.filter(t => t.assignee === person);
@@ -1466,7 +1580,7 @@
 
                     return (
                       <div key={person} style={{ height: `${rowHeight}px` }} className="flex border-b border-aura-border transition-all relative">
-                        {/* IDENTITÉ COLLABORATEUR STICKY (Restant figé à gauche lors du scroll) */}
+                        {/* IDENTITÉ COLLABORATEUR STICKY FIGÉE */}
                         <div className="w-60 p-4 border-r border-aura-border bg-aura-card flex items-center gap-3 shrink-0 sticky left-0 z-20 shadow-2xl">
                           <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-xs text-white shadow">
                             {person.charAt(0)}
@@ -1477,7 +1591,7 @@
                           </div>
                         </div>
 
-                        {/* Grille AM/PM et Tâches Glissables Aimantées avec Poignées d'Étirement */}
+                        {/* Grille AM/PM et Tâches Glissables Aimantées avec Badges NÉON AM/PM */}
                         <div className="flex-1 relative">
                           <div className="absolute inset-0 flex pointer-events-none z-0">
                             {Array.from({ length: totalTimelineDays }).map((_, i) => {
@@ -1491,13 +1605,13 @@
                                 } ${isToday ? 'bg-indigo-500/10 border-x-2 border-x-indigo-500/40' : ''} flex relative`}>
                                   <div 
                                     onDoubleClick={() => handleCellDoubleClick(person, dayDate, 'AM')}
-                                    className="w-1/2 border-r border-aura-border/10 bg-slate-900/30 hover:bg-indigo-500/10 transition cursor-crosshair pointer-events-auto"
-                                    title="Double-clic pour ajouter une tâche le matin"
+                                    className="w-1/2 border-r border-aura-border/10 bg-amber-500/[0.02] hover:bg-indigo-500/10 transition cursor-crosshair pointer-events-auto"
+                                    title="Double-clic pour planifier le Matin (AM)"
                                   />
                                   <div 
                                     onDoubleClick={() => handleCellDoubleClick(person, dayDate, 'PM')}
-                                    className="w-1/2 bg-slate-950/50 hover:bg-indigo-500/10 transition cursor-crosshair pointer-events-auto"
-                                    title="Double-clic pour ajouter une tâche l'après-midi"
+                                    className="w-1/2 bg-indigo-500/[0.02] hover:bg-indigo-500/10 transition cursor-crosshair pointer-events-auto"
+                                    title="Double-clic pour planifier l'Après-Midi (PM)"
                                   />
                                 </div>
                               );
@@ -1517,14 +1631,13 @@
                               const widthPx = displayTaskDuration * columnWidth;
                               const topPx = task.laneIndex * 36 + 8;
 
-                              // Position d'origine pour le GHOST
                               const origLeftPx = task.startDays * columnWidth;
                               const origWidthPx = task.duration * columnWidth;
                               const isDone = task.status === 'DONE';
 
                               return (
                                 <React.Fragment key={task.id}>
-                                  {/* GHOST PHANTOM TRANSLUCIDE À L'EMPLACEMENT INITIAL */}
+                                  {/* GHOST PHANTOM TRANSLUCIDE */}
                                   {isDraggingThis && (
                                     <div
                                       style={{
@@ -1536,7 +1649,7 @@
                                     />
                                   )}
 
-                                  {/* BLOC DE TÂCHE RÉEL AIMANTÉ (AVEC POIGNÉES D'ÉTIREMENT) */}
+                                  {/* BLOC DE TÂCHE RÉEL AVEC BADGES CLEAR AM/PM & DONE */}
                                   <div
                                     style={{
                                       left: `${leftPx}px`,
@@ -1549,22 +1662,23 @@
                                         setEditingTask(task);
                                       }
                                     }}
-                                    className={`absolute h-7 rounded-lg bg-gradient-to-r ${task.project.color} shadow-lg cursor-grab active:cursor-grabbing hover:brightness-110 flex items-center justify-between border select-none group transition-shadow ${
+                                    className={`absolute h-7 rounded-lg bg-gradient-to-r ${task.project.color} px-2 flex items-center justify-between text-[10px] font-bold text-white shadow-lg cursor-grab active:cursor-grabbing hover:brightness-110 truncate border select-none group transition-shadow ${
                                       isDone ? 'border-emerald-400 ring-1 ring-emerald-400/50' : 'border-white/20'
                                     } ${
                                       isDraggingThis ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-aura-bg z-30 shadow-2xl scale-105 opacity-95' : ''
                                     }`}
                                     title={`${task.title} (Glisser pour décaler)`}
                                   >
-                                    {/* Poignée Gauche d'étirement */}
-                                    <div 
-                                      onMouseDown={(e) => handlePlanningMouseDown(e, task, 'resize-left')}
-                                      className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize bg-white/30 opacity-0 group-hover:opacity-100 rounded-l-lg hover:bg-white/70 transition" 
-                                    />
+                                    <div onMouseDown={(e) => handlePlanningMouseDown(e, task, 'resize-left')} className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize bg-white/30 opacity-0 group-hover:opacity-100 rounded-l-lg hover:bg-white/70 transition" />
 
-                                    <div className="truncate px-2 flex items-center justify-between w-full pointer-events-none">
-                                      <span className="truncate flex items-center gap-1">
-                                        <span>{displaySlot === 'PM' ? '🌙' : '☀️'}</span>
+                                    <div className="truncate px-1.5 flex items-center justify-between w-full pointer-events-none">
+                                      <span className="truncate flex items-center gap-1.5">
+                                        {/* BADGE LISIBLE AM/PM NÉON */}
+                                        <span className={`px-1 py-0.2 text-[8px] font-black rounded border ${
+                                          displaySlot === 'PM' ? 'bg-indigo-950/90 text-indigo-300 border-indigo-400/50' : 'bg-amber-950/90 text-amber-300 border-amber-400/50'
+                                        }`}>
+                                          {displaySlot === 'PM' ? 'PM' : 'AM'}
+                                        </span>
                                         <span className={`truncate font-extrabold ${isDone ? 'line-through opacity-80' : ''}`}>
                                           {task.planningTitle || task.title}
                                         </span>
@@ -1573,7 +1687,7 @@
                                       <div className="flex items-center gap-1 shrink-0 ml-1">
                                         {isDone && (
                                           <span className="bg-emerald-500 text-slate-950 font-black text-[8px] px-1 py-0.2 rounded shadow">
-                                            ✓
+                                            ✓ Terminé
                                           </span>
                                         )}
                                         <span className="opacity-90 text-[9px] font-mono bg-black/40 px-1 py-0.5 rounded border border-white/10">
@@ -1582,11 +1696,7 @@
                                       </div>
                                     </div>
 
-                                    {/* Poignée Droite d'étirement */}
-                                    <div 
-                                      onMouseDown={(e) => handlePlanningMouseDown(e, task, 'resize-right')}
-                                      className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize bg-white/30 opacity-0 group-hover:opacity-100 rounded-r-lg hover:bg-white/70 transition" 
-                                    />
+                                    <div onMouseDown={(e) => handlePlanningMouseDown(e, task, 'resize-right')} className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize bg-white/30 opacity-0 group-hover:opacity-100 rounded-r-lg hover:bg-white/70 transition" />
 
                                     {/* TOOLTIP TARGET SNAP AIMANTÉ EN DIRECT */}
                                     {isDraggingThis && (
@@ -1630,13 +1740,13 @@
                   </div>
 
                   <div>
-                    <label className="block text-indigo-400 mb-1 font-semibold">Nom d'affichage Planning (Court)</label>
+                    <label className="block text-indigo-400 mb-1 font-semibold font-mono">Nom d'affichage Planning (Court)</label>
                     <input 
                       type="text" 
-                      placeholder="ex: Infra K8s (Affiché uniquement sur le Planning)"
+                      placeholder="ex: Infra K8s (Exclusif Planning)"
                       value={editingTask.planningTitle || ''} 
                       onChange={e => setEditingTask({...editingTask, planningTitle: e.target.value})}
-                      className="w-full bg-aura-bg p-3 rounded-xl border border-indigo-500/40 text-slate-200" 
+                      className="w-full bg-aura-bg p-3 rounded-xl border border-indigo-500/40 text-slate-200 font-bold" 
                     />
                   </div>
 
@@ -1665,7 +1775,7 @@
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-slate-400 mb-1">Durée (jours - 0.5j)</label>
+                      <label className="block text-slate-400 mb-1">Durée (jours - pas 0.5j)</label>
                       <input 
                         type="number" step="0.5" min="0.5"
                         value={editingTask.duration} 
@@ -1715,7 +1825,101 @@
             </div>
           )}
 
-          {/* MODAL DE SCISSION PLANNING PAR PAS DE 0.5J */}
+          {/* MODAL DE CRÉATION DE TÂCHE KANBAN / PLANNING DIRECTE */}
+          {isKanbanAddTaskModalOpen && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-bold text-slate-100">+ Planifier / Créer une Tâche</h3>
+                  <button onClick={() => setIsKanbanAddTaskModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+                </div>
+
+                <form onSubmit={handleAddTask} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-semibold">Sélectionner le Projet Parent</label>
+                    <select 
+                      value={newTaskForm.projectId || (projects[0]?.id || '')}
+                      onChange={e => setNewTaskForm({...newTaskForm, projectId: e.target.value})}
+                      className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200 font-bold"
+                    >
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1 font-semibold">Titre complet de la tâche</label>
+                    <input 
+                      type="text" required placeholder="ex: Configurer SSL Nginx Ingress Controller"
+                      value={newTaskForm.title}
+                      onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})}
+                      className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-indigo-400 mb-1 font-semibold">Nom d'affichage Planning (Court)</label>
+                    <input 
+                      type="text" placeholder="ex: SSL Ingress"
+                      value={newTaskForm.planningTitle}
+                      onChange={e => setNewTaskForm({...newTaskForm, planningTitle: e.target.value})}
+                      className="w-full bg-aura-bg p-3 rounded-xl border border-indigo-500/40 text-slate-200"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-400 mb-1">Assigné à</label>
+                      <input 
+                        type="text" required
+                        value={newTaskForm.assignee}
+                        onChange={e => setNewTaskForm({...newTaskForm, assignee: e.target.value})}
+                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Date de début</label>
+                      <input 
+                        type="date" required
+                        value={newTaskForm.startDate}
+                        onChange={e => setNewTaskForm({...newTaskForm, startDate: e.target.value})}
+                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-400 mb-1">Créneau</label>
+                      <select 
+                        value={newTaskForm.slot}
+                        onChange={e => setNewTaskForm({...newTaskForm, slot: e.target.value})}
+                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                      >
+                        <option value="AM">☀️ Matin (AM)</option>
+                        <option value="PM">🌙 Après-midi (PM)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Durée (jours - pas 0.5j)</label>
+                      <input 
+                        type="number" step="0.5" min="0.5" required
+                        value={newTaskForm.duration}
+                        onChange={e => setNewTaskForm({...newTaskForm, duration: e.target.value})}
+                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-4 border-t border-aura-border">
+                    <button type="button" onClick={() => setIsKanbanAddTaskModalOpen(false)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Annuler</button>
+                    <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl shadow">+ Créer & Planifier</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL DE SCISSION PAR TRANCHES DE 0.5J */}
           {splittingTask && (
             <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
               <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
