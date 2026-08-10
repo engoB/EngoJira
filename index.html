@@ -93,7 +93,7 @@
 
     const TODAY_STR = formatDateIso(new Date());
 
-    // DONNÉES INITIALES ROADMAP & KANBAN (PROJETS)
+    // DONNÉES INITIALES ROADMAP & KANBAN
     const INITIAL_PROJECTS = [
       {
         id: 'proj-1',
@@ -122,59 +122,50 @@
       }
     ];
 
-    // DONNÉES INITIALES PLANNING (100% INDÉPENDANTES)
+    // DONNÉES INITIALES PLANNING (SO PLANNING STYLE)
     const INITIAL_PLANNING_ENTRIES = [
-      { id: 'pe-1', title: 'Infra K8s Terraform', tag: 'Infrastructure', color: 'from-indigo-600 to-violet-600', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 3.5 },
-      { id: 'pe-2', title: 'Audit Ingress SSL', tag: 'Infrastructure', color: 'from-indigo-600 to-violet-600', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'PM', duration: 2 },
-      { id: 'pe-3', title: 'Tokens Figma', tag: 'Frontend', color: 'from-purple-600 to-fuchsia-600', assignee: 'Sophie T.', startDate: formatDateIso(addDays(new Date(), 2)), slot: 'AM', duration: 2.5 }
+      { id: 'pe-1', title: 'Infra K8s Terraform', tag: 'Infrastructure', color: 'from-indigo-600 to-violet-600', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 3.5, notes: 'Deploy cluster prod' },
+      { id: 'pe-2', title: 'Audit Ingress SSL', tag: 'Infrastructure', color: 'from-indigo-600 to-violet-600', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'PM', duration: 2, notes: 'Verification certs' },
+      { id: 'pe-3', title: 'Tokens Figma', tag: 'Frontend', color: 'from-purple-600 to-fuchsia-600', assignee: 'Sophie T.', startDate: formatDateIso(addDays(new Date(), 2)), slot: 'AM', duration: 2.5, notes: 'Export JSON' }
     ];
 
     function AuraPlanApp() {
-      // MODE SOMBRE / CLAIR
       const [isDark, setIsDark] = useState(true);
 
-      // ÉTATS DES PROJETS (ROADMAP & KANBAN)
       const [projects, setProjects] = useState(() => {
-        const saved = localStorage.getItem('auraplan_projects_v11');
+        const saved = localStorage.getItem('auraplan_projects_v12');
         return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
       });
 
-      // ÉTATS DU PLANNING (INDÉPENDANT)
       const [planningEntries, setPlanningEntries] = useState(() => {
-        const saved = localStorage.getItem('auraplan_entries_v11');
+        const saved = localStorage.getItem('auraplan_entries_v12');
         return saved ? JSON.parse(saved) : INITIAL_PLANNING_ENTRIES;
       });
 
-      const [activeTab, setActiveTab] = useState('roadmap'); // 'roadmap' | 'kanban' | 'planning'
+      const [activeTab, setActiveTab] = useState('roadmap');
       const [selectedProjectId, setSelectedProjectId] = useState('proj-1');
       const [editingTask, setEditingTask] = useState(null);
       const [editingPlanningEntry, setEditingPlanningEntry] = useState(null);
 
-      // Scission Planning
       const [splittingPlanningEntry, setSplittingPlanningEntry] = useState(null);
       const [splitSegments, setSplitSegments] = useState([1, 1]);
 
       const [columnWidth, setColumnWidth] = useState(100);
 
-      // Contrôle Panneaux Gauche & Droit (Roadmap)
       const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
       const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
 
-      // Accordions
       const [isAddTaskFolded, setIsAddTaskFolded] = useState(true);
       const [isProjectEditFolded, setIsProjectEditFolded] = useState(true);
 
-      // Kanban Drag & Drop
       const [draggingKanbanTaskId, setDraggingKanbanTaskId] = useState(null);
       const [dragOverColumn, setDragOverColumn] = useState(null);
 
-      // Modales
       const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
       const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
       const [isKanbanAddTaskModalOpen, setIsKanbanAddTaskModalOpen] = useState(false);
       const [isCreatePlanningModalOpen, setIsCreatePlanningModalOpen] = useState(false);
 
-      // Formulaires
       const [newProjectForm, setNewProjectForm] = useState({
         title: '', category: 'Tech', startDate: TODAY_STR, duration: 10, color: 'from-indigo-600 to-violet-600'
       });
@@ -182,16 +173,14 @@
         projectId: '', title: '', assignee: 'Alexandre M.', startDate: TODAY_STR, duration: 2, status: 'TODO'
       });
       const [newPlanningForm, setNewPlanningForm] = useState({
-        title: '', tag: 'Général', color: 'from-indigo-600 to-violet-600', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 1
+        title: '', tag: 'Général', color: 'from-indigo-600 to-violet-600', assignee: 'Alexandre M.', startDate: TODAY_STR, slot: 'AM', duration: 1, notes: ''
       });
 
-      // Drag Engines
-      const [dragState, setDragState] = useState(null); // Roadmap
-      const [planningDragState, setPlanningDragState] = useState(null); // Planning Move / Resize
+      const [dragState, setDragState] = useState(null);
+      const [planningDragState, setPlanningDragState] = useState(null);
       const hasDraggedPlanningTask = useRef(false);
       const dragAnimRef = useRef(null);
 
-      // GitHub REST API & WebRTC P2P
       const [ghConfig, setGhConfig] = useState(() => {
         const saved = localStorage.getItem('gh_config');
         return saved ? JSON.parse(saved) : { owner: '', repo: '', path: 'data.json', token: '' };
@@ -200,13 +189,12 @@
       const [connectedPeers, setConnectedPeers] = useState(1);
       const yDocRef = useRef(null);
 
-      // Appliquer la classe dark au HTML
       useEffect(() => {
         if (isDark) document.documentElement.classList.add('dark');
         else document.documentElement.classList.remove('dark');
       }, [isDark]);
 
-      // CALENDRIER & BORNES DYNAMIQUES AVEC MARGES DE SÉCURITÉ (FIT ALL SAFE)
+      // CALENDRIER & BORNES DYNAMIQUES AVEC MARGE
       const { timelineStartDate, totalTimelineDays } = useMemo(() => {
         let minDate = parseDate(TODAY_STR);
         let maxDate = addDays(parseDate(TODAY_STR), 30);
@@ -227,13 +215,11 @@
           });
         }
 
-        // MARGE CONFORTABLE : 3 jours avant le début, 5 jours après la fin
         const mondayStart = getMonday(addDays(minDate, -3));
         const requiredDays = diffDays(addDays(maxDate, 5), mondayStart);
         return { timelineStartDate: mondayStart, totalTimelineDays: Math.max(30, requiredDays) };
       }, [projects, planningEntries, activeTab]);
 
-      // En-tête des Semaines
       const timelineWeeks = useMemo(() => {
         const weeksMap = [];
         let currentWeekNum = null;
@@ -253,7 +239,6 @@
         return weeksMap;
       }, [timelineStartDate, totalTimelineDays]);
 
-      // En-tête des Mois
       const timelineMonths = useMemo(() => {
         const monthsMap = [];
         let currentMonthKey = '';
@@ -273,7 +258,6 @@
         return monthsMap;
       }, [timelineStartDate, totalTimelineDays]);
 
-      // Flat list des tâches avec protection crash
       const allFlatTasks = useMemo(() => {
         const list = [];
         projects.forEach(p => {
@@ -290,7 +274,6 @@
         return list;
       }, [projects]);
 
-      // Regroupement Kanban (Isolation de la scission)
       const kanbanGroupedTasks = useMemo(() => {
         const map = new Map();
         allFlatTasks.forEach(task => {
@@ -307,7 +290,6 @@
         return Array.from(map.values());
       }, [allFlatTasks]);
 
-      // Collaborateurs uniques
       const collaborators = useMemo(() => {
         const set = new Set();
         planningEntries.forEach(pe => { if (pe.assignee) set.add(pe.assignee); });
@@ -316,12 +298,10 @@
         return Array.from(set);
       }, [planningEntries, allFlatTasks]);
 
-      // Persistance
-      useEffect(() => localStorage.setItem('auraplan_projects_v11', JSON.stringify(projects)), [projects]);
-      useEffect(() => localStorage.setItem('auraplan_entries_v11', JSON.stringify(planningEntries)), [planningEntries]);
+      useEffect(() => localStorage.setItem('auraplan_projects_v12', JSON.stringify(projects)), [projects]);
+      useEffect(() => localStorage.setItem('auraplan_entries_v12', JSON.stringify(planningEntries)), [planningEntries]);
       useEffect(() => localStorage.setItem('gh_config', JSON.stringify(ghConfig)), [ghConfig]);
 
-      // WebRTC Sync (Yjs)
       useEffect(() => {
         try {
           if (!window.Y || !window.YWebrtc) return;
@@ -345,7 +325,7 @@
 
           return () => { provider.destroy(); ydoc.destroy(); };
         } catch (e) {
-          console.warn("Yjs sync non disponible", e);
+          console.warn("Yjs P2P non initialisé", e);
         }
       }, []);
 
@@ -371,16 +351,15 @@
         }
       }, []);
 
-      // PROGRESSION PROJET (%)
+      // PROGRESSION PROJET (%) DYNAMIQUE
       const getProjectProgress = (project) => {
-        if (!project.tasks || project.tasks.length === 0) return 0;
+        if (!project || !project.tasks || project.tasks.length === 0) return 0;
         const doneCount = project.tasks.filter(t => t.status === 'DONE').length;
         return Math.round((doneCount / project.tasks.length) * 100);
       };
 
-      // HEALTH CHECK ROADMAP
       const getProjectHealth = (project) => {
-        if (!project.tasks || project.tasks.length === 0) return { status: 'NEUTRAL', label: '⚪ Pas de tâches' };
+        if (!project || !project.tasks || project.tasks.length === 0) return { status: 'NEUTRAL', label: '⚪ Pas de tâches' };
         const pStart = parseDate(project.startDate);
         const pEnd = addDays(pStart, Number(project.duration));
 
@@ -396,19 +375,17 @@
         return { status: 'SUCCESS', label: '🟢 Dans les temps' };
       };
 
-      // --- CALCUL DU FIT ALL DYNAMIQUE EXACT AVEC MARGES AÉRÉES ---
       const fitAllTasks = useCallback(() => {
         const viewport = document.getElementById('timeline-viewport');
         if (!viewport) return;
 
         const containerWidth = viewport.clientWidth - 20;
-        const computedWidth = Math.max(22, Math.floor(containerWidth / totalTimelineDays));
+        const computedWidth = Math.max(24, Math.floor(containerWidth / totalTimelineDays));
 
         setColumnWidth(computedWidth);
         viewport.scrollLeft = 0;
       }, [totalTimelineDays]);
 
-      // SPRINT 2 SEMAINES FOCUS TEMPS RÉEL (PAGES CENTRÉES AUPRÈS D'AUJOURD'HUI)
       const focusCurrentSprint = useCallback(() => {
         const currentMonday = getMonday(new Date());
         const viewport = document.getElementById('timeline-viewport');
@@ -424,7 +401,6 @@
         }
       }, [timelineStartDate]);
 
-      // ALGORITHME PLANNING MULTI-LIGNES PAR COLLABORATEUR
       const calculateCollaboratorLanes = (personEntries) => {
         const sorted = [...personEntries].sort((a, b) => {
           const tA = parseDate(a.startDate).getTime() + (a.slot === 'PM' ? 43200000 : 0);
@@ -453,7 +429,6 @@
         return { placedEntries, totalLanes, rowHeight: totalLanes * 38 + 24 };
       };
 
-      // DRAG ENGINE ROADMAP PROJETS
       const handleMouseDown = (e, projectId, action) => {
         e.stopPropagation();
         e.preventDefault();
@@ -512,7 +487,6 @@
         };
       }, [dragState, columnWidth, projects, broadcastProjects]);
 
-      // DRAG ENGINE PLANNING FLUIDE (SANS DÉCLENCHEMENT DE MODAL INTEMPESTIF)
       const handlePlanningMouseDown = (e, entry, action = 'move') => {
         e.stopPropagation();
         e.preventDefault();
@@ -607,7 +581,6 @@
         };
       }, [planningDragState, columnWidth, planningEntries, timelineStartDate, broadcastPlanning]);
 
-      // KANBAN DRAG & DROP
       const handleKanbanDragStart = (e, taskId) => {
         setDraggingKanbanTaskId(taskId);
         e.dataTransfer.setData('text/plain', taskId);
@@ -633,7 +606,6 @@
         broadcastProjects(updatedProjects);
       };
 
-      // OUVERTURE CRÉATION DÉDIÉE AU PLANNING D'UN CLIC / DOUBLE CLIC
       const handleCellClickPlanning = (person, dayDate, slot) => {
         setNewPlanningForm({
           title: '',
@@ -642,7 +614,8 @@
           assignee: person,
           startDate: formatDateIso(dayDate),
           slot: slot,
-          duration: 1
+          duration: 1,
+          notes: ''
         });
         setIsCreatePlanningModalOpen(true);
       };
@@ -682,7 +655,18 @@
         }));
       };
 
-      // SCISSION PLANNING EN TRANCHES 0.5J
+      const openSplitModal = (entry) => {
+        setSplittingPlanningEntry(entry);
+        if (entry.duration === 5.5) {
+          setSplitSegments([4, 0.5, 1]);
+        } else if (entry.duration > 1) {
+          const half = Number((Math.floor(entry.duration / 0.5 / 2) * 0.5).toFixed(1));
+          setSplitSegments([half, Number((entry.duration - half).toFixed(1))]);
+        } else {
+          setSplitSegments([0.5, 0.5]);
+        }
+      };
+
       const executePlanningSplit = (e) => {
         e.preventDefault();
         if (!splittingPlanningEntry) return;
@@ -729,7 +713,7 @@
         setEditingPlanningEntry(null);
       };
 
-      // SAUVEGARDE GITHUB REST API
+      // GITHUB SAVE
       const saveToGitHub = async () => {
         if (!ghConfig.owner || !ghConfig.repo || !ghConfig.token) {
           alert("Veuillez renseigner vos identifiants dans ⚙️ Config GitHub");
@@ -786,10 +770,13 @@
         setIsProjectModalOpen(false);
       };
 
+      // AJOUT DE TÂCHE KANBAN/ROADMAP ET RECALCUL AUTOMATIQUE DE PROGRESSION
       const handleAddTask = (e) => {
         e.preventDefault();
         const targetProjId = newTaskForm.projectId || selectedProjectId;
         if (!newTaskForm.title.trim() || !targetProjId) return;
+
+        const proj = projects.find(p => p.id === targetProjId);
 
         const updatedProjects = projects.map(p => {
           if (p.id !== targetProjId) return p;
@@ -801,7 +788,7 @@
                 id: `t-${p.id}-${Date.now()}`,
                 title: newTaskForm.title.trim(),
                 assignee: newTaskForm.assignee || 'Alexandre M.',
-                startDate: newTaskForm.startDate || p.startDate,
+                startDate: newTaskForm.startDate || proj.startDate,
                 duration: Number(newTaskForm.duration) || 1,
                 status: newTaskForm.status || 'TODO'
               }
@@ -838,6 +825,15 @@
           broadcastProjects(updated);
           if (selectedProjectId === projId) setSelectedProjectId(updated[0]?.id || null);
         }
+      };
+
+      const toggleTaskDoneStatus = (taskId, isDone) => {
+        const newStatus = isDone ? 'DONE' : 'IN_PROGRESS';
+        const updatedProjects = projects.map(p => ({
+          ...p,
+          tasks: (p.tasks || []).map(t => t.id === taskId ? { ...t, status: newStatus } : t)
+        }));
+        broadcastProjects(updatedProjects);
       };
 
       const selectedProject = projects.find(p => p.id === selectedProjectId);
@@ -881,7 +877,6 @@
             </div>
 
             <div className="flex items-center gap-3">
-              {/* THEME SWITCHER */}
               <button 
                 onClick={() => setIsDark(!isDark)}
                 className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-2 ${
@@ -1187,7 +1182,7 @@
                         );
                       })()}
 
-                      {/* SECTION 3 : LISTE DES TÂCHES RÉELLES */}
+                      {/* SECTION 3 : LISTE DES TÂCHES RÉELLES AVEC CHECKBOX / VALIDATION DONE */}
                       <div className="p-4 rounded-2xl bg-cyan-950/10 border border-cyan-500/20 mb-4">
                         <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-3 flex items-center justify-between">
                           <span>Tâches Réelles ({selectedProject.tasks?.length || 0})</span>
@@ -1200,12 +1195,12 @@
 
                             return (
                               <div key={task.id} className="p-2.5 rounded-xl border flex items-center justify-between text-xs gap-2 bg-slate-900/40 border-slate-700">
-                                <label className="flex items-center gap-2 cursor-pointer flex-1 truncate">
+                                <label className="flex items-center gap-2 cursor-pointer flex-1 truncate" onClick={e => e.stopPropagation()}>
                                   <input 
                                     type="checkbox" 
                                     checked={isDone}
                                     onChange={(e) => toggleTaskDoneStatus(task.id, e.target.checked)}
-                                    className="w-4 h-4 rounded accent-emerald-500 cursor-pointer"
+                                    className="w-4 h-4 rounded accent-emerald-500 cursor-pointer shrink-0"
                                   />
                                   <span className={`truncate ${isDone ? 'line-through opacity-50' : 'font-semibold'}`}>
                                     {task.title}
@@ -1320,7 +1315,7 @@
               </>
             )}
 
-            {/* VUE 2 : KANBAN DRAG & DROP */}
+            {/* VUE 2 : KANBAN DRAG & DROP AVEC RECALCUL IMMÉDIAT DE PROGRESSION */}
             {activeTab === 'kanban' && (
               <div className={`flex-1 p-6 overflow-x-auto ${isDark ? 'bg-aura-bg' : 'bg-slate-100'}`}>
                 <div className="grid grid-cols-4 gap-6 min-w-[1100px] h-full">
@@ -1411,13 +1406,13 @@
               </div>
             )}
 
-            {/* VUE 3 : PLANNING COLLABORATEUR (AM/PM PRECISION HIGH VISIBILITY) */}
+            {/* VUE 3 : PLANNING COLLABORATEUR (SOPLANNING HIGH PRECISION & STICKY ANCRÉ) */}
             {activeTab === 'planning' && (
               <div id="timeline-viewport" className={`flex-1 flex flex-col overflow-x-auto relative ${isDark ? 'bg-aura-bg' : 'bg-slate-50'}`}>
                 
-                {/* Ligne 1 : En-tête des Semaines (ex: Semaine 33) */}
+                {/* Ligne 1 : En-tête des Semaines */}
                 <div className={`h-6 border-b flex sticky top-0 z-30 ${isDark ? 'bg-slate-900/95 border-aura-border' : 'bg-slate-200 border-slate-300'}`} style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
-                  <div className={`w-60 px-4 font-bold text-[10px] border-r sticky left-0 z-30 uppercase tracking-wider flex items-center ${isDark ? 'bg-slate-900 border-aura-border text-slate-400' : 'bg-slate-200 border-slate-300 text-slate-600'}`}>
+                  <div className={`w-60 px-4 font-bold text-[10px] border-r sticky left-0 z-40 uppercase tracking-wider flex items-center ${isDark ? 'bg-slate-900 border-aura-border text-slate-400' : 'bg-slate-200 border-slate-300 text-slate-600'}`}>
                     Semaines
                   </div>
                   <div className="flex-1 flex">
@@ -1435,9 +1430,9 @@
 
                 {/* Ligne 2 : Header Calendrier Jours avec Sous-Colonnes AM/PM */}
                 <div className={`h-12 border-b flex items-center shrink-0 sticky top-6 z-30 ${isDark ? 'bg-slate-900/95 border-aura-border' : 'bg-slate-100 border-slate-200'}`} style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
-                  <div className={`w-60 px-4 font-bold text-xs border-r sticky left-0 z-30 shadow-xl flex items-center justify-between ${isDark ? 'bg-slate-900 border-aura-border text-slate-300' : 'bg-white border-slate-200 text-slate-800'}`}>
+                  <div className={`w-60 px-4 font-bold text-xs border-r sticky left-0 z-40 shadow-xl flex items-center justify-between ${isDark ? 'bg-slate-900 border-aura-border text-slate-300' : 'bg-white border-slate-200 text-slate-800'}`}>
                     <span>Collaborateurs</span>
-                    <span className="text-[10px] text-indigo-400 font-mono font-bold">0.5j AM/PM</span>
+                    <span className="text-[10px] text-indigo-400 font-mono font-bold">SO Planning</span>
                   </div>
                   <div className="flex-1 flex">
                     {Array.from({ length: totalTimelineDays }).map((_, i) => {
@@ -1468,7 +1463,7 @@
                   </div>
                 </div>
 
-                {/* Planning par Collaborateur */}
+                {/* Planning par Collaborateur avec COLONNE GAUCHE FIGÉE (STICKY FIX) */}
                 <div className="flex-1 overflow-y-auto" style={{ width: `${totalTimelineDays * columnWidth + 240}px` }}>
                   {collaborators.map(person => {
                     const personEntries = planningEntries.filter(pe => pe.assignee === person);
@@ -1476,8 +1471,8 @@
 
                     return (
                       <div key={person} style={{ height: `${rowHeight}px` }} className="flex border-b border-slate-800/40 transition-all relative">
-                        {/* IDENTITÉ COLLABORATEUR STICKY FIGÉE À GAUCHE */}
-                        <div className={`w-60 p-4 border-r flex items-center gap-3 shrink-0 sticky left-0 z-20 shadow-xl ${isDark ? 'bg-aura-card border-aura-border' : 'bg-white border-slate-200'}`}>
+                        {/* IDENTITÉ COLLABORATEUR STICKY (Restant 100% figé à gauche lors du scroll) */}
+                        <div className={`w-60 p-4 border-r flex items-center gap-3 shrink-0 sticky left-0 z-30 shadow-2xl ${isDark ? 'bg-aura-card border-aura-border' : 'bg-white border-slate-200'}`}>
                           <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-xs text-white shadow">
                             {person.charAt(0)}
                           </div>
@@ -1500,29 +1495,29 @@
                                   isMonday ? 'border-l-2 border-l-indigo-500/30 border-r-slate-800/20' : 'border-r-slate-800/20'
                                 } ${isToday ? 'bg-indigo-500/10 border-x-2 border-x-indigo-500/40' : ''} flex relative`}>
                                   
-                                  {/* Demi-cellule AM (Matin) */}
+                                  {/* DEMI-CASE AM (MATIN) AVEC SURVOL "+ AM" */}
                                   <div 
                                     onClick={() => handleCellClickPlanning(person, dayDate, 'AM')}
                                     className="w-1/2 border-r border-slate-700/20 bg-amber-500/[0.03] hover:bg-indigo-500/20 transition cursor-pointer group flex items-center justify-center pointer-events-auto"
                                     title="Cliquer pour planifier le Matin (AM)"
                                   >
-                                    <span className="text-[9px] font-bold text-amber-400/0 group-hover:text-amber-300 transition">+ AM</span>
+                                    <span className="text-[9px] font-bold text-amber-400 opacity-0 group-hover:opacity-100 transition">+ AM</span>
                                   </div>
 
-                                  {/* Demi-cellule PM (Après-midi) */}
+                                  {/* DEMI-CASE PM (APRÈS-MIDI) AVEC SURVOL "+ PM" */}
                                   <div 
                                     onClick={() => handleCellClickPlanning(person, dayDate, 'PM')}
                                     className="w-1/2 bg-indigo-500/[0.03] hover:bg-indigo-500/20 transition cursor-pointer group flex items-center justify-center pointer-events-auto"
                                     title="Cliquer pour planifier l'Après-Midi (PM)"
                                   >
-                                    <span className="text-[9px] font-bold text-indigo-400/0 group-hover:text-indigo-300 transition">+ PM</span>
+                                    <span className="text-[9px] font-bold text-indigo-300 opacity-0 group-hover:opacity-100 transition">+ PM</span>
                                   </div>
                                 </div>
                               );
                             })}
                           </div>
 
-                          {/* Blocs du Planning */}
+                          {/* Blocs du Planning (Aimantés + Ghosting) */}
                           <div className="relative w-full h-full z-10 pointer-events-none">
                             {placedEntries.map(entry => {
                               const isDraggingThis = planningDragState && planningDragState.entryId === entry.id;
@@ -1614,16 +1609,15 @@
           {/* MODAL 1 : CRÉATION DÉDIÉE AU PLANNING AVEC AIDE À LA SAISIE */}
           {isCreatePlanningModalOpen && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl text-slate-100">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-slate-100">+ Nouvelle Entrée au Planning</h3>
+                  <h3 className="text-base font-bold">+ Nouvelle Entrée au Planning</h3>
                   <button onClick={() => setIsCreatePlanningModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
                 </div>
 
                 <form onSubmit={handleCreatePlanningEntry} className="space-y-4 text-xs">
-                  {/* Assistant de saisie rapide */}
                   <div className="p-3 bg-indigo-950/30 border border-indigo-500/30 rounded-xl space-y-1">
-                    <label className="block font-bold text-indigo-300 text-[11px]">⚡ Remplir depuis un projet/tâche Roadmap :</label>
+                    <label className="block font-bold text-indigo-300 text-[11px]">⚡ Copier un projet/tâche existant :</label>
                     <select 
                       onChange={(e) => {
                         const val = e.target.value;
@@ -1639,7 +1633,7 @@
                       }}
                       className="w-full bg-slate-900 border border-indigo-500/40 p-2 rounded-lg text-slate-200 text-xs font-semibold"
                     >
-                      <option value="">-- Choisir pour copier le nom --</option>
+                      <option value="">-- Choisir un modèle --</option>
                       <optgroup label="Projets Roadmap">
                         {projects.map(p => <option key={p.id} value={`proj:${p.id}`}>{p.title}</option>)}
                       </optgroup>
@@ -1655,7 +1649,7 @@
                       type="text" required placeholder="ex: Infra Terraform K8s"
                       value={newPlanningForm.title}
                       onChange={e => setNewPlanningForm({...newPlanningForm, title: e.target.value})}
-                      className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200 font-bold"
+                      className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100 font-bold"
                     />
                   </div>
 
@@ -1666,7 +1660,7 @@
                         type="text"
                         value={newPlanningForm.tag}
                         onChange={e => setNewPlanningForm({...newPlanningForm, tag: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100"
                       />
                     </div>
                     <div>
@@ -1674,7 +1668,7 @@
                       <select 
                         value={newPlanningForm.color}
                         onChange={e => setNewPlanningForm({...newPlanningForm, color: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100"
                       >
                         {COLOR_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.name}</option>)}
                       </select>
@@ -1688,7 +1682,7 @@
                         type="text" required
                         value={newPlanningForm.assignee}
                         onChange={e => setNewPlanningForm({...newPlanningForm, assignee: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100"
                       />
                     </div>
                     <div>
@@ -1697,7 +1691,7 @@
                         type="date" required
                         value={newPlanningForm.startDate}
                         onChange={e => setNewPlanningForm({...newPlanningForm, startDate: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100"
                       />
                     </div>
                   </div>
@@ -1708,7 +1702,7 @@
                       <select 
                         value={newPlanningForm.slot}
                         onChange={e => setNewPlanningForm({...newPlanningForm, slot: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100"
                       >
                         <option value="AM">☀️ Matin (AM)</option>
                         <option value="PM">🌙 Après-midi (PM)</option>
@@ -1720,13 +1714,13 @@
                         type="number" step="0.5" min="0.5" required
                         value={newPlanningForm.duration}
                         onChange={e => setNewPlanningForm({...newPlanningForm, duration: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200 font-bold"
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100 font-bold"
                       />
                     </div>
                   </div>
 
-                  <div className="flex justify-end gap-3 pt-4 border-t border-aura-border">
-                    <button type="button" onClick={() => setIsCreatePlanningModalOpen(false)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Annuler</button>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
+                    <button type="button" onClick={() => setIsCreatePlanningModalOpen(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl">Annuler</button>
                     <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl shadow">+ Planifier</button>
                   </div>
                 </form>
@@ -1737,9 +1731,9 @@
           {/* MODAL 2 : ÉDITION / MODIFICATION ENTRÉE PLANNING */}
           {editingPlanningEntry && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl text-slate-100">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-slate-100">Modifier l'Entrée Planning</h3>
+                  <h3 className="text-base font-bold">Modifier l'Entrée Planning</h3>
                   <button onClick={() => setEditingPlanningEntry(null)} className="text-slate-400 hover:text-white">✕</button>
                 </div>
 
@@ -1750,7 +1744,7 @@
                       type="text" 
                       value={editingPlanningEntry.title} 
                       onChange={e => setEditingPlanningEntry({...editingPlanningEntry, title: e.target.value})}
-                      className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200 font-bold" 
+                      className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100 font-bold" 
                     />
                   </div>
 
@@ -1761,7 +1755,7 @@
                         type="text" 
                         value={editingPlanningEntry.tag || ''} 
                         onChange={e => setEditingPlanningEntry({...editingPlanningEntry, tag: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" 
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" 
                       />
                     </div>
                     <div>
@@ -1769,7 +1763,7 @@
                       <select 
                         value={editingPlanningEntry.color || 'from-indigo-600 to-violet-600'} 
                         onChange={e => setEditingPlanningEntry({...editingPlanningEntry, color: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100"
                       >
                         {COLOR_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.name}</option>)}
                       </select>
@@ -1783,7 +1777,7 @@
                         type="date" 
                         value={editingPlanningEntry.startDate || TODAY_STR} 
                         onChange={e => setEditingPlanningEntry({...editingPlanningEntry, startDate: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" 
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" 
                       />
                     </div>
                     <div>
@@ -1791,7 +1785,7 @@
                       <select 
                         value={editingPlanningEntry.slot || 'AM'} 
                         onChange={e => setEditingPlanningEntry({...editingPlanningEntry, slot: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100"
                       >
                         <option value="AM">☀️ Matin (AM)</option>
                         <option value="PM">🌙 Après-midi (PM)</option>
@@ -1806,7 +1800,7 @@
                         type="number" step="0.5" min="0.5"
                         value={editingPlanningEntry.duration} 
                         onChange={e => setEditingPlanningEntry({...editingPlanningEntry, duration: Number(e.target.value)})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200 font-bold" 
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100 font-bold" 
                       />
                     </div>
                     <div>
@@ -1815,7 +1809,7 @@
                         type="text" 
                         value={editingPlanningEntry.assignee} 
                         onChange={e => setEditingPlanningEntry({...editingPlanningEntry, assignee: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" 
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" 
                       />
                     </div>
                   </div>
@@ -1830,10 +1824,10 @@
                     </button>
                   )}
 
-                  <div className="flex justify-between items-center pt-4 border-t border-aura-border">
+                  <div className="flex justify-between items-center pt-4 border-t border-slate-700">
                     <button onClick={() => handleDeletePlanningEntry(editingPlanningEntry.id)} className="text-rose-400 font-semibold">Supprimer</button>
                     <div className="flex gap-2">
-                      <button onClick={() => setEditingPlanningEntry(null)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Annuler</button>
+                      <button onClick={() => setEditingPlanningEntry(null)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl">Annuler</button>
                       <button onClick={() => handleUpdatePlanningEntry(editingPlanningEntry)} className="px-4 py-2 bg-indigo-600 font-semibold text-white rounded-xl">Enregistrer</button>
                     </div>
                   </div>
@@ -1845,9 +1839,9 @@
           {/* MODAL 3 : ÉDITION TÂCHE KANBAN/ROADMAP */}
           {editingTask && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl text-slate-100">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-slate-100">Modifier Tâche Backlog</h3>
+                  <h3 className="text-base font-bold">Modifier Tâche Backlog</h3>
                   <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-white">✕</button>
                 </div>
 
@@ -1858,7 +1852,7 @@
                       type="text" 
                       value={editingTask.title} 
                       onChange={e => setEditingTask({...editingTask, title: e.target.value})}
-                      className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" 
+                      className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" 
                     />
                   </div>
 
@@ -1869,7 +1863,7 @@
                         type="date" 
                         value={editingTask.startDate || TODAY_STR} 
                         onChange={e => setEditingTask({...editingTask, startDate: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" 
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" 
                       />
                     </div>
                     <div>
@@ -1878,15 +1872,15 @@
                         type="number" min="1"
                         value={editingTask.duration} 
                         onChange={e => setEditingTask({...editingTask, duration: Number(e.target.value)})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" 
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" 
                       />
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-center pt-4 border-t border-aura-border">
+                  <div className="flex justify-between items-center pt-4 border-t border-slate-700">
                     <button onClick={() => handleDeleteTask(editingTask.id)} className="text-rose-400 font-semibold">Supprimer</button>
                     <div className="flex gap-2">
-                      <button onClick={() => setEditingTask(null)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Annuler</button>
+                      <button onClick={() => setEditingTask(null)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl">Annuler</button>
                       <button onClick={() => handleUpdateTask(editingTask)} className="px-4 py-2 bg-indigo-600 font-semibold text-white rounded-xl">Enregistrer</button>
                     </div>
                   </div>
@@ -1898,8 +1892,8 @@
           {/* MODAL 4 : SCISSION ENTRÉE PLANNING */}
           {splittingPlanningEntry && (
             <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
-              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
-                <h3 className="text-base font-bold text-slate-100 mb-2">✂️ Scission Planning Sur-Mesure</h3>
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl text-slate-100">
+                <h3 className="text-base font-bold mb-2">✂️ Scission Planning Sur-Mesure</h3>
                 <p className="text-xs text-slate-400 mb-4">Entrée : <strong>{splittingPlanningEntry.title}</strong> ({splittingPlanningEntry.duration} jours)</p>
 
                 <form onSubmit={executePlanningSplit} className="space-y-4 text-xs">
@@ -1907,7 +1901,7 @@
                     <label className="block text-slate-300 mb-2 font-medium">Tranches de découpage (pas de 0,5j) :</label>
                     <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                       {splitSegments.map((seg, idx) => (
-                        <div key={idx} className="flex items-center gap-2 bg-aura-bg p-2 rounded-xl border border-aura-border">
+                        <div key={idx} className="flex items-center gap-2 bg-slate-900 p-2 rounded-xl border border-slate-700">
                           <span className="text-[10px] font-bold text-slate-400 w-16">Tranche {idx + 1} :</span>
                           <input 
                             type="number" step="0.5" min="0.5" max={splittingPlanningEntry.duration} required
@@ -1918,7 +1912,7 @@
                               newSegs[idx] = val;
                               setSplitSegments(newSegs);
                             }}
-                            className="flex-1 bg-aura-card p-2 rounded border border-aura-border text-slate-200 text-xs font-mono font-bold"
+                            className="flex-1 bg-slate-950 p-2 rounded border border-slate-700 text-slate-100 text-xs font-mono font-bold"
                           />
                           <span className="text-[10px] text-slate-400">jour(s)</span>
                           {splitSegments.length > 2 && (
@@ -1943,7 +1937,7 @@
                     </button>
                   </div>
 
-                  <div className="p-3 bg-aura-bg rounded-xl border border-aura-border flex items-center justify-between text-[11px]">
+                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-700 flex items-center justify-between text-[11px]">
                     <span className="text-slate-400">Somme des tranches :</span>
                     <span className={`font-mono font-bold ${
                       Math.abs(splitSegments.reduce((a,b) => a+Number(b), 0) - splittingPlanningEntry.duration) < 0.01 ? 'text-emerald-400' : 'text-rose-400'
@@ -1952,8 +1946,8 @@
                     </span>
                   </div>
 
-                  <div className="flex justify-end gap-3 pt-4 border-t border-aura-border">
-                    <button type="button" onClick={() => setSplittingPlanningEntry(null)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Annuler</button>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
+                    <button type="button" onClick={() => setSplittingPlanningEntry(null)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl">Annuler</button>
                     <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl shadow">Découper la tâche</button>
                   </div>
                 </form>
@@ -1964,30 +1958,30 @@
           {/* MODAL 5 : CONFIGURATION GITHUB */}
           {isConfigModalOpen && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl text-slate-100">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-slate-100">⚙️ Config GitHub Sync</h3>
+                  <h3 className="text-base font-bold">⚙️ Config GitHub Sync</h3>
                   <button onClick={() => setIsConfigModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
                 </div>
 
                 <div className="space-y-4 text-xs">
                   <div>
                     <label className="block text-slate-400 mb-1">Propriétaire Dépôt (Owner)</label>
-                    <input type="text" placeholder="ex: mon-pseudo" value={ghConfig.owner} onChange={e => setGhConfig({...ghConfig, owner: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
+                    <input type="text" placeholder="ex: mon-pseudo" value={ghConfig.owner} onChange={e => setGhConfig({...ghConfig, owner: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
                   </div>
                   <div>
                     <label className="block text-slate-400 mb-1">Nom du Dépôt (Repo)</label>
-                    <input type="text" placeholder="ex: ma-roadmap" value={ghConfig.repo} onChange={e => setGhConfig({...ghConfig, repo: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
+                    <input type="text" placeholder="ex: ma-roadmap" value={ghConfig.repo} onChange={e => setGhConfig({...ghConfig, repo: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
                   </div>
                   <div>
                     <label className="block text-slate-400 mb-1">Token GitHub (PAT)</label>
-                    <input type="password" placeholder="github_pat_..." value={ghConfig.token} onChange={e => setGhConfig({...ghConfig, token: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
+                    <input type="password" placeholder="github_pat_..." value={ghConfig.token} onChange={e => setGhConfig({...ghConfig, token: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
                   </div>
 
                   {syncStatus && <div className="text-indigo-400 font-semibold">{syncStatus}</div>}
 
-                  <div className="flex justify-end gap-3 pt-4 border-t border-aura-border">
-                    <button onClick={() => setIsConfigModalOpen(false)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Fermer</button>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
+                    <button onClick={() => setIsConfigModalOpen(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl">Fermer</button>
                     <button onClick={saveToGitHub} className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-semibold">Commiter data.json</button>
                   </div>
                 </div>
@@ -1998,29 +1992,29 @@
           {/* MODAL 6 : CRÉATION DE PROJET */}
           {isProjectModalOpen && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
-                <h3 className="text-lg font-bold text-slate-100 mb-4">Créer un Nouveau Projet</h3>
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl text-slate-100">
+                <h3 className="text-lg font-bold mb-4">Créer un Nouveau Projet</h3>
                 <form onSubmit={handleCreateProject} className="space-y-4 text-xs">
                   <div>
                     <label className="block text-slate-400 mb-1">Nom du Projet</label>
-                    <input type="text" required value={newProjectForm.title} onChange={e => setNewProjectForm({...newProjectForm, title: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
+                    <input type="text" required value={newProjectForm.title} onChange={e => setNewProjectForm({...newProjectForm, title: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
                   </div>
                   <div>
                     <label className="block text-slate-400 mb-1">Catégorie / Tag (ex: Mobile, Design...)</label>
-                    <input type="text" placeholder="ex: Frontend" value={newProjectForm.category} onChange={e => setNewProjectForm({...newProjectForm, category: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
+                    <input type="text" placeholder="ex: Frontend" value={newProjectForm.category} onChange={e => setNewProjectForm({...newProjectForm, category: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-slate-400 mb-1">Date Cible de début</label>
-                      <input type="date" required value={newProjectForm.startDate} onChange={e => setNewProjectForm({...newProjectForm, startDate: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
+                      <input type="date" required value={newProjectForm.startDate} onChange={e => setNewProjectForm({...newProjectForm, startDate: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
                     </div>
                     <div>
                       <label className="block text-slate-400 mb-1">Durée Cible (jours)</label>
-                      <input type="number" min="1" required value={newProjectForm.duration} onChange={e => setNewProjectForm({...newProjectForm, duration: e.target.value})} className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200" />
+                      <input type="number" min="1" required value={newProjectForm.duration} onChange={e => setNewProjectForm({...newProjectForm, duration: e.target.value})} className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100" />
                     </div>
                   </div>
-                  <div className="flex justify-end gap-3 pt-4 border-t border-aura-border">
-                    <button type="button" onClick={() => setIsProjectModalOpen(false)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Annuler</button>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
+                    <button type="button" onClick={() => setIsProjectModalOpen(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl">Annuler</button>
                     <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-xl">Créer Projet</button>
                   </div>
                 </form>
@@ -2031,9 +2025,9 @@
           {/* MODAL 7 : CRÉATION DE TÂCHE KANBAN */}
           {isKanbanAddTaskModalOpen && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div className="bg-aura-card border border-aura-border rounded-2xl p-6 w-full max-w-md shadow-2xl text-slate-100">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-slate-100">+ Créer Tâche Kanban</h3>
+                  <h3 className="text-base font-bold">+ Créer Tâche Kanban</h3>
                   <button onClick={() => setIsKanbanAddTaskModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
                 </div>
 
@@ -2043,7 +2037,7 @@
                     <select 
                       value={newTaskForm.projectId || (projects[0]?.id || '')}
                       onChange={e => setNewTaskForm({...newTaskForm, projectId: e.target.value})}
-                      className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200 font-bold"
+                      className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100 font-bold"
                     >
                       {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
                     </select>
@@ -2055,7 +2049,7 @@
                       type="text" required placeholder="ex: Intégration SSL Ngress"
                       value={newTaskForm.title}
                       onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})}
-                      className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                      className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100"
                     />
                   </div>
 
@@ -2066,7 +2060,7 @@
                         type="text" required
                         value={newTaskForm.assignee}
                         onChange={e => setNewTaskForm({...newTaskForm, assignee: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100"
                       />
                     </div>
                     <div>
@@ -2075,13 +2069,13 @@
                         type="date" required
                         value={newTaskForm.startDate}
                         onChange={e => setNewTaskForm({...newTaskForm, startDate: e.target.value})}
-                        className="w-full bg-aura-bg p-3 rounded-xl border border-aura-border text-slate-200"
+                        className="w-full bg-slate-900 p-3 rounded-xl border border-slate-700 text-slate-100"
                       />
                     </div>
                   </div>
 
-                  <div className="flex justify-end gap-3 pt-4 border-t border-aura-border">
-                    <button type="button" onClick={() => setIsKanbanAddTaskModalOpen(false)} className="px-4 py-2 bg-aura-bg text-slate-300 rounded-xl">Annuler</button>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
+                    <button type="button" onClick={() => setIsKanbanAddTaskModalOpen(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl">Annuler</button>
                     <button type="submit" className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-xl shadow">+ Créer Tâche</button>
                   </div>
                 </form>
