@@ -49,6 +49,12 @@
   ::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,.6); background-clip: content-box; }
   .is-dragging, .is-dragging * { cursor: grabbing !important; user-select: none !important; }
   .conflict-cell { background-image: repeating-linear-gradient(45deg, rgba(244,63,94,.28) 0 6px, rgba(244,63,94,0) 6px 12px); }
+  @keyframes jourJColumn { 0%, 100% { background-color: rgba(244,63,94,.10); } 50% { background-color: rgba(244,63,94,.26); } }
+  .jour-j-col { animation: jourJColumn 2.4s ease-in-out infinite; }
+  @keyframes jourJHalo { 0%, 100% { box-shadow: 0 0 0 0 rgba(244,63,94,.45); } 50% { box-shadow: 0 0 16px 4px rgba(244,63,94,.65); } }
+  .jour-j-bar { animation: jourJHalo 2s ease-in-out infinite; }
+  @keyframes jourJPin { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+  .jour-j-pin { animation: jourJPin 2s ease-in-out infinite; }
   input[type="range"] { accent-color: #6366F1; }
   .boot-error { max-width: 620px; margin: 12vh auto; padding: 28px; border-radius: 18px; background: #0E1626; border: 1px solid #253052; }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -125,6 +131,13 @@ const getWeekNumber = (d) => {
   date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
   const week1 = new Date(date.getFullYear(), 0, 4);
   return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+};
+
+// Fin incluse : une tâche d'un jour commence et finit le même jour.
+const endFromDuration = (startIso, duration) => formatDateIso(addDays(parseDate(startIso), Math.max(0, Math.ceil(Number(duration) || 1) - 1)));
+const durationFromEnd = (startIso, endIso, step) => {
+  const d = diffDays(parseDate(endIso), parseDate(startIso)) + 1;
+  return Math.max(step || 1, d);
 };
 
 const isIsoDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s + 'T00:00:00').getTime());
@@ -240,10 +253,18 @@ const normalizeColumnLabels = (raw) => {
   return out;
 };
 
+const DEFAULT_EVENT = { date: '2027-07-31', label: 'Jour J' };
+
+const normalizeEvent = (raw) => {
+  const o = raw && typeof raw === 'object' ? raw : {};
+  return { date: safeDate(o.date) === TODAY_STR && !isIsoDate(o.date) ? DEFAULT_EVENT.date : safeDate(o.date), label: safeText(o.label, DEFAULT_EVENT.label) };
+};
+
 const normalizeData = (raw) => {
   const o = raw && typeof raw === 'object' ? raw : {};
   return {
     columnLabels: normalizeColumnLabels(o.columnLabels),
+    event: normalizeEvent(o.event),
     projects: Array.isArray(o.projects) ? o.projects.map(normalizeProject) : [],
     planning: Array.isArray(o.planning) ? o.planning.map(normalizeEntry)
       : Array.isArray(o.planningEntries) ? o.planningEntries.map(normalizeEntry) : [],
@@ -253,804 +274,409 @@ const normalizeData = (raw) => {
 
 /* --------- Jeu de démonstration : votre mariage (issu de vos données) -------- */
 const SEED_RAW = {
+ "columnLabels": {
+  "TODO": "À faire",
+  "IN_PROGRESS": "En cours",
+  "IN_REVIEW": "Devis reçu",
+  "DONE": "Validé"
+ },
+ "event": {
+  "date": "2027-07-31",
+  "label": "Jour J — Mariage"
+ },
  "projects": [
   {
-   "id": "proj-mariage-prestas",
+   "id": "proj-prestas",
    "title": "Mariage — Prestataires",
-   "category": "Mariage",
+   "category": "Prestataires",
    "startDate": "2026-08-10",
-   "duration": 140,
+   "duration": 326,
    "color": "from-indigo-500 to-violet-600",
    "tasks": [
     {
      "id": "t-lieu",
-     "title": "Lieu — Château Maucaillou (réservé)",
+     "title": "Lieu — Château Maucaillou",
      "assignee": "Moi",
      "startDate": "2026-08-10",
-     "duration": 24,
+     "duration": 56,
      "status": "IN_PROGRESS",
      "priority": "HIGH",
      "rank": 0,
-     "notes": "Formule Élégance 4 850 €. Samedi 10h–3h + dimanche 10h–18h.",
+     "notes": "Formule Élégance 4 850 € — samedi 10h-3h et dimanche 10h-18h.",
      "subtasks": [
       {
-       "title": "Domaine retenu : Château Maucaillou",
+       "title": "Domaine retenu",
        "assignee": "Moi",
        "status": "DONE",
        "startDate": "2026-08-10",
-       "duration": 1,
-       "notes": "Formule Élégance — 4 850 €. Salle des Notables, parc, ménage et parking inclus."
+       "duration": 3,
+       "notes": ""
       },
       {
-       "title": "Signer le contrat de location",
+       "title": "Signer le contrat",
        "assignee": "Moi",
        "status": "IN_PROGRESS",
-       "startDate": "2026-08-12",
-       "duration": 3,
-       "notes": "Vérifier les horaires de fin et les deux services de vin imposés."
+       "startDate": "2026-08-13",
+       "duration": 8,
+       "notes": ""
       },
       {
        "title": "Verser l'acompte",
        "assignee": "Moi",
        "status": "TODO",
-       "startDate": "2026-08-16",
-       "duration": 2,
+       "startDate": "2026-08-21",
+       "duration": 8,
        "notes": ""
       },
       {
-       "title": "Réserver les 5 chambres d'hôtes",
-       "assignee": "Mon binôme",
+       "title": "Réserver les chambres d'hôtes",
+       "assignee": "Magalie",
        "status": "TODO",
-       "startDate": "2026-08-19",
-       "duration": 3,
-       "notes": "140–160 € la nuit, petit-déjeuner inclus, taxe de séjour en sus."
-      },
-      {
-       "title": "Repérage et plan de salle",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-08-24",
-       "duration": 3,
-       "notes": ""
-      },
-      {
-       "title": "Confirmer l'accès prestataires la veille",
-       "assignee": "Wedding planner",
-       "status": "TODO",
-       "startDate": "2026-08-29",
-       "duration": 2,
+       "startDate": "2026-08-31",
+       "duration": 35,
        "notes": ""
       }
      ]
     },
     {
      "id": "t-traiteur",
-     "title": "Traiteur — Damien Bernardet (retenu)",
-     "assignee": "Mon binôme",
+     "title": "Traiteur — Damien Bernardet",
+     "assignee": "Magalie",
      "startDate": "2026-08-17",
-     "duration": 26,
+     "duration": 109,
      "status": "IN_PROGRESS",
      "priority": "HIGH",
-     "rank": 0,
+     "rank": 1,
      "notes": "",
      "subtasks": [
       {
-       "title": "Traiteur retenu : Damien Bernardet",
-       "assignee": "Mon binôme",
+       "title": "Traiteur retenu",
+       "assignee": "Magalie",
        "status": "DONE",
        "startDate": "2026-08-17",
-       "duration": 1,
+       "duration": 3,
        "notes": ""
       },
       {
-       "title": "Dégustation menu",
-       "assignee": "Mon binôme",
+       "title": "Dégustation du menu",
+       "assignee": "Magalie",
        "status": "IN_PROGRESS",
-       "startDate": "2026-08-18",
-       "duration": 1,
+       "startDate": "2026-08-20",
+       "duration": 8,
        "notes": ""
       },
       {
        "title": "Valider le menu définitif",
-       "assignee": "Mon binôme",
+       "assignee": "Magalie",
        "status": "TODO",
-       "startDate": "2026-08-22",
-       "duration": 3,
-       "notes": ""
-      },
-      {
-       "title": "Recenser allergies et régimes spéciaux",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-08-27",
-       "duration": 3,
-       "notes": ""
-      },
-      {
-       "title": "Verser l'acompte et signer",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-09-01",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Caler la logistique avec le domaine",
-       "assignee": "Wedding planner",
-       "status": "TODO",
-       "startDate": "2026-09-06",
-       "duration": 2,
+       "startDate": "2026-09-03",
+       "duration": 92,
        "notes": ""
       }
      ]
     },
     {
      "id": "t-planner",
-     "title": "Wedding planner",
+     "title": "Déterminer le wedding planner",
      "assignee": "Moi",
-     "startDate": "2026-08-17",
-     "duration": 24,
+     "startDate": "2026-08-24",
+     "duration": 57,
      "status": "IN_PROGRESS",
      "priority": "HIGH",
-     "rank": 0,
+     "rank": 2,
      "notes": "",
      "subtasks": [
       {
-       "title": "Coup2coeur",
+       "title": "Comparer les trois devis",
        "assignee": "Moi",
        "status": "IN_REVIEW",
-       "startDate": "2026-08-17",
-       "duration": 2,
-       "notes": "Statut Notion : A répondu"
+       "startDate": "2026-08-24",
+       "duration": 15,
+       "notes": ""
       },
       {
-       "title": "Treize m ciel",
+       "title": "Choisir et signer",
        "assignee": "Moi",
        "status": "TODO",
-       "startDate": "2026-08-22",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "NLW Nathalie Longefay",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-08-27",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "onlyyou",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-09-01",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
+       "startDate": "2026-09-08",
+       "duration": 42,
+       "notes": ""
       }
      ]
     },
     {
      "id": "t-photo",
-     "title": "Photographe",
+     "title": "Déterminer le photographe",
      "assignee": "Moi",
-     "startDate": "2026-09-14",
-     "duration": 24,
+     "startDate": "2026-10-19",
+     "duration": 31,
      "status": "TODO",
      "priority": "HIGH",
-     "rank": 0,
+     "rank": 3,
      "notes": "",
      "subtasks": [
       {
-       "title": "Tandem photo",
+       "title": "Choisir le photographe",
        "assignee": "Moi",
        "status": "TODO",
-       "startDate": "2026-09-14",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
+       "startDate": "2026-10-19",
+       "duration": 21,
+       "notes": ""
       },
       {
-       "title": "Alexandre Mariottini",
-       "assignee": "Moi",
-       "status": "IN_REVIEW",
-       "startDate": "2026-09-18",
-       "duration": 2,
-       "notes": "Statut Notion : A répondu"
-      },
-      {
-       "title": "Alliance pgs drone",
+       "title": "Signer et verser l’acompte",
        "assignee": "Moi",
        "status": "TODO",
-       "startDate": "2026-09-22",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Jb Rabier (contact mallet)",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-09-26",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Emilie Boudoin",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-09-30",
-       "duration": 2,
-       "notes": "Statut Notion : à contacter"
+       "startDate": "2026-11-09",
+       "duration": 10,
+       "notes": ""
       }
      ]
     },
     {
      "id": "t-video",
-     "title": "Vidéaste",
+     "title": "Déterminer le vidéaste",
      "assignee": "Moi",
-     "startDate": "2026-09-24",
-     "duration": 20,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Lister 3 vidéastes du Médoc",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-09-24",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Demander les devis",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-09-27",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Choisir et réserver",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-09-30",
-       "duration": 2,
-       "notes": ""
-      }
-     ]
-    },
-    {
-     "id": "t-robes",
-     "title": "Robes",
-     "assignee": "Mon binôme",
-     "startDate": "2026-09-09",
-     "duration": 45,
-     "status": "TODO",
-     "priority": "HIGH",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Eglantine",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-09-09",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Elegante parenthese",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-09-22",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "About love & co",
-       "assignee": "Mon binôme",
-       "status": "IN_REVIEW",
-       "startDate": "2026-10-05",
-       "duration": 2,
-       "notes": "Statut Notion : A répondu"
-      }
-     ]
-    },
-    {
-     "id": "t-mua",
-     "title": "Maquillage / Coiffure",
-     "assignee": "Mon binôme",
-     "startDate": "2026-10-24",
-     "duration": 22,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Sybille & Anais",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-10-24",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Essai maquillage",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-10-24",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Essai coiffure",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-10-27",
-       "duration": 2,
-       "notes": ""
-      }
-     ]
-    },
-    {
-     "id": "t-fleurs",
-     "title": "Fleuriste",
-     "assignee": "Mon binôme",
-     "startDate": "2026-10-04",
-     "duration": 22,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Définir la palette florale",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-10-04",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Demander 3 devis",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-10-07",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Choisir le fleuriste",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-10-10",
-       "duration": 2,
-       "notes": ""
-      }
-     ]
-    },
-    {
-     "id": "t-dj",
-     "title": "DJ / Musique",
-     "assignee": "Témoins",
-     "startDate": "2026-09-29",
-     "duration": 22,
-     "status": "TODO",
-     "priority": "HIGH",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Demander la liste des partenaires du domaine",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-09-29",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Écouter 2 DJ",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-10-02",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Réserver le DJ",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-10-05",
-       "duration": 2,
-       "notes": ""
-      }
-     ]
-    },
-    {
-     "id": "t-chant",
-     "title": "Chanteurs",
-     "assignee": "Témoins",
-     "startDate": "2026-10-09",
-     "duration": 18,
-     "status": "TODO",
-     "priority": "LOW",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Ben & jane",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-10-09",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Choisir les morceaux de la cérémonie",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-10-09",
-       "duration": 2,
-       "notes": ""
-      }
-     ]
-    },
-    {
-     "id": "t-danse",
-     "title": "Danse",
-     "assignee": "Mon binôme",
-     "startDate": "2026-10-29",
-     "duration": 28,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Oriane Gagnieu",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-10-29",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Vidadanse",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-11-09",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Caler 6 séances d'ouverture de bal",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-10-29",
-       "duration": 2,
-       "notes": ""
-      }
-     ]
-    },
-    {
-     "id": "t-ateliers",
-     "title": "Ateliers bonus",
-     "assignee": "Témoins",
-     "startDate": "2026-10-19",
-     "duration": 26,
-     "status": "TODO",
-     "priority": "LOW",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Chez Pascal Dunes Blanches",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-10-19",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Barque à huitres",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-10-23",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "M La boum (cocktails)",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-10-27",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Les anims de freddy (velo fruits)",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-10-31",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Pression cocktails",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-11-04",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      }
-     ]
-    },
-    {
-     "id": "t-papeterie",
-     "title": "Papeterie & personnalisation",
-     "assignee": "Moi",
-     "startDate": "2026-11-08",
-     "duration": 24,
-     "status": "TODO",
-     "priority": "LOW",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Draw your wine (personnalisation bouteilles)",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-11-08",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Il était une feuille",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-11-14",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      },
-      {
-       "title": "Les Grands jours",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-11-20",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "id": "proj-mariage-invites",
-   "title": "Mariage — Invités & logistique",
-   "category": "Mariage",
-   "startDate": "2026-08-24",
-   "duration": 120,
-   "color": "from-emerald-500 to-teal-600",
-   "tasks": [
-    {
-     "id": "t-liste",
-     "title": "Liste des invités",
-     "assignee": "Moi",
-     "startDate": "2026-08-24",
-     "duration": 21,
-     "status": "IN_PROGRESS",
-     "priority": "HIGH",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Lister la famille proche",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-08-24",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Lister les amis",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-08-27",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Arbitrer le nombre final",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-08-30",
-       "duration": 2,
-       "notes": ""
-      }
-     ]
-    },
-    {
-     "id": "t-budget",
-     "title": "Budget global",
-     "assignee": "Moi",
-     "startDate": "2026-08-24",
-     "duration": 30,
-     "status": "IN_PROGRESS",
-     "priority": "URGENT",
-     "rank": 1,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Fixer l'enveloppe totale",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-08-24",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Répartir par poste",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-08-27",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Suivre les acomptes",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-08-30",
-       "duration": 2,
-       "notes": ""
-      }
-     ]
-    },
-    {
-     "id": "t-fairepart",
-     "title": "Faire-part & save the date",
-     "assignee": "Mon binôme",
-     "startDate": "2026-09-24",
-     "duration": 30,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 2,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir le graphiste",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-09-24",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Valider la maquette",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-09-27",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Envoyer les save the date",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-09-30",
-       "duration": 2,
-       "notes": ""
-      }
-     ]
-    },
-    {
-     "id": "t-hebergement",
-     "title": "Hébergement des invités",
-     "assignee": "Témoins",
-     "startDate": "2026-10-09",
-     "duration": 35,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 3,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Bloquer les chambres du domaine",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-10-09",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Lister les hôtels alentours",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-10-12",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Envoyer la liste aux invités",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-10-15",
-       "duration": 2,
-       "notes": ""
-      }
-     ]
-    },
-    {
-     "id": "t-navettes",
-     "title": "Navettes & transport",
-     "assignee": "Témoins",
-     "startDate": "2026-10-29",
-     "duration": 30,
+     "startDate": "2026-11-18",
+     "duration": 31,
      "status": "TODO",
      "priority": "MEDIUM",
      "rank": 4,
      "notes": "",
      "subtasks": [
       {
-       "title": "Devis navette Bordeaux ↔ domaine",
-       "assignee": "Témoins",
+       "title": "Choisir le vidéaste",
+       "assignee": "Moi",
        "status": "TODO",
-       "startDate": "2026-10-29",
-       "duration": 2,
+       "startDate": "2026-11-18",
+       "duration": 21,
        "notes": ""
       },
       {
-       "title": "Recenser les besoins",
+       "title": "Signer le contrat",
+       "assignee": "Moi",
+       "status": "TODO",
+       "startDate": "2026-12-09",
+       "duration": 10,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-dj",
+     "title": "Déterminer le DJ",
+     "assignee": "Témoins",
+     "startDate": "2026-12-03",
+     "duration": 31,
+     "status": "TODO",
+     "priority": "HIGH",
+     "rank": 5,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Choisir le DJ",
        "assignee": "Témoins",
        "status": "TODO",
-       "startDate": "2026-11-01",
-       "duration": 2,
+       "startDate": "2026-12-03",
+       "duration": 21,
+       "notes": ""
+      },
+      {
+       "title": "Signer le contrat",
+       "assignee": "Témoins",
+       "status": "TODO",
+       "startDate": "2026-12-24",
+       "duration": 10,
+       "notes": ""
+      },
+      {
+       "title": "Envoyer la playlist",
+       "assignee": "Témoins",
+       "status": "TODO",
+       "startDate": "2027-06-16",
+       "duration": 16,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-robes",
+     "title": "Déterminer la robe et le costume",
+     "assignee": "Magalie",
+     "startDate": "2026-12-18",
+     "duration": 106,
+     "status": "TODO",
+     "priority": "HIGH",
+     "rank": 6,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Choisir la boutique",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2026-12-18",
+       "duration": 21,
+       "notes": ""
+      },
+      {
+       "title": "Commander la robe",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-01-08",
+       "duration": 15,
+       "notes": ""
+      },
+      {
+       "title": "Essayages finaux",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-03-13",
+       "duration": 21,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-fleurs",
+     "title": "Déterminer le fleuriste",
+     "assignee": "Magalie",
+     "startDate": "2027-01-17",
+     "duration": 31,
+     "status": "TODO",
+     "priority": "MEDIUM",
+     "rank": 7,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Choisir le fleuriste",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-01-17",
+       "duration": 21,
+       "notes": ""
+      },
+      {
+       "title": "Valider les compositions",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-02-07",
+       "duration": 10,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-mua",
+     "title": "Déterminer la maquilleuse et la coiffeuse",
+     "assignee": "Magalie",
+     "startDate": "2027-02-16",
+     "duration": 46,
+     "status": "TODO",
+     "priority": "MEDIUM",
+     "rank": 8,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Choisir la prestataire",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-02-16",
+       "duration": 21,
+       "notes": ""
+      },
+      {
+       "title": "Essai maquillage et coiffure",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-04-22",
+       "duration": 11,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-chant",
+     "title": "Déterminer les chanteurs",
+     "assignee": "Témoins",
+     "startDate": "2027-03-03",
+     "duration": 31,
+     "status": "TODO",
+     "priority": "LOW",
+     "rank": 9,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Choisir les chanteurs",
+       "assignee": "Témoins",
+       "status": "TODO",
+       "startDate": "2027-03-03",
+       "duration": 21,
+       "notes": ""
+      },
+      {
+       "title": "Choisir les morceaux",
+       "assignee": "Témoins",
+       "status": "TODO",
+       "startDate": "2027-03-24",
+       "duration": 10,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-danse",
+     "title": "Déterminer le cours de danse",
+     "assignee": "Magalie",
+     "startDate": "2027-04-02",
+     "duration": 76,
+     "status": "TODO",
+     "priority": "MEDIUM",
+     "rank": 10,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Choisir le professeur",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-04-02",
+       "duration": 16,
+       "notes": ""
+      },
+      {
+       "title": "Séances d'ouverture de bal",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-05-02",
+       "duration": 46,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-ateliers",
+     "title": "Déterminer les animations",
+     "assignee": "Témoins",
+     "startDate": "2027-04-17",
+     "duration": 31,
+     "status": "TODO",
+     "priority": "LOW",
+     "rank": 11,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Choisir les ateliers",
+       "assignee": "Témoins",
+       "status": "TODO",
+       "startDate": "2027-04-17",
+       "duration": 21,
        "notes": ""
       },
       {
        "title": "Réserver",
        "assignee": "Témoins",
        "status": "TODO",
-       "startDate": "2026-11-04",
-       "duration": 2,
-       "notes": ""
-      }
-     ]
-    },
-    {
-     "id": "t-plantable",
-     "title": "Plan de table",
-     "assignee": "Mon binôme",
-     "startDate": "2026-11-28",
-     "duration": 24,
-     "status": "TODO",
-     "priority": "LOW",
-     "rank": 5,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Récupérer les réponses",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-11-28",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Construire le plan",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-12-01",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Imprimer les marque-places",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-12-04",
-       "duration": 2,
+       "startDate": "2027-05-08",
+       "duration": 10,
        "notes": ""
       }
      ]
@@ -1058,160 +684,353 @@ const SEED_RAW = {
    ]
   },
   {
-   "id": "proj-mariage-jourj",
-   "title": "Mariage — Jour J",
-   "category": "Mariage",
-   "startDate": "2026-12-08",
-   "duration": 45,
-   "color": "from-amber-500 to-orange-600",
+   "id": "proj-invites",
+   "title": "Mariage — Invités & logistique",
+   "category": "Logistique",
+   "startDate": "2026-08-10",
+   "duration": 336,
+   "color": "from-emerald-500 to-teal-600",
    "tasks": [
     {
-     "id": "t-deroule",
-     "title": "Déroulé de la journée",
-     "assignee": "Wedding planner",
-     "startDate": "2026-12-08",
-     "duration": 25,
-     "status": "TODO",
-     "priority": "HIGH",
+     "id": "t-budget",
+     "title": "Fixer le budget",
+     "assignee": "Moi",
+     "startDate": "2026-08-10",
+     "duration": 56,
+     "status": "IN_PROGRESS",
+     "priority": "URGENT",
      "rank": 0,
      "notes": "",
      "subtasks": [
       {
-       "title": "Écrire le timing heure par heure",
-       "assignee": "Wedding planner",
-       "status": "TODO",
-       "startDate": "2026-12-08",
-       "duration": 2,
+       "title": "Arrêter l'enveloppe globale",
+       "assignee": "Moi",
+       "status": "IN_PROGRESS",
+       "startDate": "2026-08-10",
+       "duration": 15,
        "notes": ""
       },
       {
-       "title": "Partager aux prestataires",
-       "assignee": "Wedding planner",
+       "title": "Suivre les acomptes",
+       "assignee": "Moi",
        "status": "TODO",
-       "startDate": "2026-12-11",
-       "duration": 2,
+       "startDate": "2026-08-25",
+       "duration": 41,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-liste",
+     "title": "Arrêter la liste des invités",
+     "assignee": "Magalie",
+     "startDate": "2026-08-17",
+     "duration": 69,
+     "status": "IN_PROGRESS",
+     "priority": "HIGH",
+     "rank": 1,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Recenser famille et amis",
+       "assignee": "Magalie",
+       "status": "IN_PROGRESS",
+       "startDate": "2026-08-17",
+       "duration": 22,
        "notes": ""
       },
       {
-       "title": "Prévoir un plan B pluie",
-       "assignee": "Wedding planner",
+       "title": "Arrêter le nombre final",
+       "assignee": "Moi",
        "status": "TODO",
-       "startDate": "2026-12-14",
-       "duration": 2,
+       "startDate": "2026-09-08",
+       "duration": 47,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-std",
+     "title": "Envoyer les save the date",
+     "assignee": "Magalie",
+     "startDate": "2026-10-04",
+     "duration": 31,
+     "status": "TODO",
+     "priority": "HIGH",
+     "rank": 2,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Choisir le modèle",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2026-10-04",
+       "duration": 16,
+       "notes": ""
+      },
+      {
+       "title": "Envoyer",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2026-10-20",
+       "duration": 15,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-fairepart",
+     "title": "Envoyer les faire-part",
+     "assignee": "Magalie",
+     "startDate": "2027-02-01",
+     "duration": 31,
+     "status": "TODO",
+     "priority": "HIGH",
+     "rank": 3,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Commander les faire-part",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-02-01",
+       "duration": 16,
+       "notes": ""
+      },
+      {
+       "title": "Envoyer",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-02-17",
+       "duration": 15,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-heberg",
+     "title": "Organiser l'hébergement",
+     "assignee": "Témoins",
+     "startDate": "2027-01-02",
+     "duration": 61,
+     "status": "TODO",
+     "priority": "MEDIUM",
+     "rank": 4,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Bloquer les chambres alentours",
+       "assignee": "Témoins",
+       "status": "TODO",
+       "startDate": "2027-01-02",
+       "duration": 26,
+       "notes": ""
+      },
+      {
+       "title": "Communiquer la liste aux invités",
+       "assignee": "Témoins",
+       "status": "TODO",
+       "startDate": "2027-01-28",
+       "duration": 35,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-navettes",
+     "title": "Déterminer le transporteur",
+     "assignee": "Témoins",
+     "startDate": "2027-04-02",
+     "duration": 31,
+     "status": "TODO",
+     "priority": "MEDIUM",
+     "rank": 5,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Choisir la navette",
+       "assignee": "Témoins",
+       "status": "TODO",
+       "startDate": "2027-04-02",
+       "duration": 21,
+       "notes": ""
+      },
+      {
+       "title": "Réserver",
+       "assignee": "Témoins",
+       "status": "TODO",
+       "startDate": "2027-04-23",
+       "duration": 10,
+       "notes": ""
+      }
+     ]
+    },
+    {
+     "id": "t-table",
+     "title": "Faire le plan de table",
+     "assignee": "Magalie",
+     "startDate": "2027-06-01",
+     "duration": 41,
+     "status": "TODO",
+     "priority": "MEDIUM",
+     "rank": 6,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Collecter les réponses",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-06-01",
+       "duration": 26,
+       "notes": ""
+      },
+      {
+       "title": "Finaliser le plan",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-06-27",
+       "duration": 15,
+       "notes": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "proj-jourj",
+   "title": "Mariage — Jour J",
+   "category": "Jour J",
+   "startDate": "2027-03-03",
+   "duration": 151,
+   "color": "from-rose-500 to-pink-600",
+   "tasks": [
+    {
+     "id": "t-deco",
+     "title": "Déterminer la décoration",
+     "assignee": "Magalie",
+     "startDate": "2027-03-03",
+     "duration": 91,
+     "status": "TODO",
+     "priority": "MEDIUM",
+     "rank": 0,
+     "notes": "",
+     "subtasks": [
+      {
+       "title": "Choisir le thème",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-03-03",
+       "duration": 31,
+       "notes": ""
+      },
+      {
+       "title": "Louer le mobilier",
+       "assignee": "Magalie",
+       "status": "TODO",
+       "startDate": "2027-05-02",
+       "duration": 31,
        "notes": ""
       }
      ]
     },
     {
      "id": "t-ceremonie",
-     "title": "Cérémonie",
+     "title": "Préparer la cérémonie",
      "assignee": "Moi",
-     "startDate": "2026-12-08",
-     "duration": 30,
+     "startDate": "2027-05-02",
+     "duration": 76,
      "status": "TODO",
      "priority": "HIGH",
      "rank": 1,
      "notes": "",
      "subtasks": [
       {
-       "title": "Choisir le lieu de cérémonie",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-12-08",
-       "duration": 2,
-       "notes": ""
-      },
-      {
        "title": "Écrire les vœux",
        "assignee": "Moi",
        "status": "TODO",
-       "startDate": "2026-12-11",
-       "duration": 2,
+       "startDate": "2027-05-02",
+       "duration": 46,
        "notes": ""
       },
       {
        "title": "Briefer les témoins",
-       "assignee": "Moi",
+       "assignee": "Témoins",
        "status": "TODO",
-       "startDate": "2026-12-14",
-       "duration": 2,
+       "startDate": "2027-07-01",
+       "duration": 16,
        "notes": ""
       }
      ]
     },
     {
-     "id": "t-deco",
-     "title": "Décoration",
-     "assignee": "Mon binôme",
-     "startDate": "2026-12-16",
-     "duration": 28,
+     "id": "t-deroule",
+     "title": "Écrire le déroulé de la journée",
+     "assignee": "Wedding planner",
+     "startDate": "2027-06-01",
+     "duration": 51,
      "status": "TODO",
-     "priority": "MEDIUM",
+     "priority": "HIGH",
      "rank": 2,
      "notes": "",
      "subtasks": [
       {
-       "title": "Définir le thème",
-       "assignee": "Mon binôme",
+       "title": "Rédiger le timing",
+       "assignee": "Wedding planner",
        "status": "TODO",
-       "startDate": "2026-12-16",
-       "duration": 2,
+       "startDate": "2027-06-01",
+       "duration": 31,
        "notes": ""
       },
       {
-       "title": "Louer le mobilier",
-       "assignee": "Mon binôme",
+       "title": "Partager aux prestataires",
+       "assignee": "Wedding planner",
        "status": "TODO",
-       "startDate": "2026-12-19",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Prévoir l'installation la veille",
-       "assignee": "Mon binôme",
-       "status": "TODO",
-       "startDate": "2026-12-22",
-       "duration": 2,
+       "startDate": "2027-07-11",
+       "duration": 11,
        "notes": ""
       }
      ]
     },
     {
-     "id": "t-anim",
-     "title": "Discours & animations",
-     "assignee": "Témoins",
-     "startDate": "2026-12-23",
-     "duration": 25,
+     "id": "t-install",
+     "title": "Répétition et installation",
+     "assignee": "Wedding planner",
+     "startDate": "2027-07-29",
+     "duration": 2,
      "status": "TODO",
-     "priority": "LOW",
+     "priority": "URGENT",
      "rank": 3,
      "notes": "",
      "subtasks": [
       {
-       "title": "Recenser les discours",
-       "assignee": "Témoins",
+       "title": "Répétition générale",
+       "assignee": "Wedding planner",
        "status": "TODO",
-       "startDate": "2026-12-23",
-       "duration": 2,
+       "startDate": "2027-07-29",
+       "duration": 1,
        "notes": ""
       },
       {
-       "title": "Caler l'ordre de passage",
-       "assignee": "Témoins",
+       "title": "Installation au domaine",
+       "assignee": "Wedding planner",
        "status": "TODO",
-       "startDate": "2026-12-26",
-       "duration": 2,
-       "notes": ""
-      },
-      {
-       "title": "Préparer les surprises",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-12-29",
-       "duration": 2,
+       "startDate": "2027-07-30",
+       "duration": 1,
        "notes": ""
       }
      ]
+    },
+    {
+     "id": "t-jourj",
+     "title": "💍 Mariage — cérémonie & réception",
+     "assignee": "Moi",
+     "startDate": "2027-07-31",
+     "duration": 1,
+     "status": "TODO",
+     "priority": "URGENT",
+     "rank": 4,
+     "notes": "Le grand jour.",
+     "subtasks": []
     }
    ]
   }
@@ -1222,7 +1041,7 @@ const SEED_RAW = {
    "tag": "Lieu",
    "color": "from-indigo-500 to-violet-600",
    "assignee": "Moi",
-   "startDate": "2026-08-12",
+   "startDate": "2026-08-13",
    "slot": "AM",
    "duration": 0.5
   },
@@ -1231,27 +1050,18 @@ const SEED_RAW = {
    "tag": "Lieu",
    "color": "from-emerald-500 to-teal-600",
    "assignee": "Moi",
-   "startDate": "2026-08-13",
-   "slot": "PM",
-   "duration": 0.5
-  },
-  {
-   "title": "Réservation chambres d'hôtes",
-   "tag": "Lieu",
-   "color": "from-cyan-500 to-blue-600",
-   "assignee": "Mon binôme",
    "startDate": "2026-08-14",
-   "slot": "AM",
+   "slot": "PM",
    "duration": 0.5
   },
   {
-   "title": "Repérage & plan de salle",
-   "tag": "Lieu",
-   "color": "from-indigo-500 to-violet-600",
-   "assignee": "Mon binôme",
-   "startDate": "2026-08-19",
-   "slot": "PM",
-   "duration": 1.5
+   "title": "Dégustation Damien Bernardet",
+   "tag": "Traiteur",
+   "color": "from-rose-500 to-pink-600",
+   "assignee": "Magalie",
+   "startDate": "2026-08-20",
+   "slot": "AM",
+   "duration": 1
   },
   {
    "title": "Point hebdo prestataires",
@@ -1263,79 +1073,70 @@ const SEED_RAW = {
    "duration": 0.5
   },
   {
-   "title": "Dégustation Damien Bernardet",
-   "tag": "Traiteur",
-   "color": "from-rose-500 to-pink-600",
-   "assignee": "Mon binôme",
-   "startDate": "2026-08-18",
-   "slot": "AM",
-   "duration": 1
+   "title": "Repérage & plan de salle",
+   "tag": "Lieu",
+   "color": "from-indigo-500 to-violet-600",
+   "assignee": "Magalie",
+   "startDate": "2026-08-19",
+   "slot": "PM",
+   "duration": 1.5
   },
   {
-   "title": "Rendez-vous Coup2Coeur",
+   "title": "Rendez-vous wedding planner",
    "tag": "Wedding planner",
    "color": "from-purple-500 to-fuchsia-600",
-   "assignee": "Wedding planner",
-   "startDate": "2026-08-19",
+   "assignee": "Moi",
+   "startDate": "2026-08-25",
    "slot": "PM",
    "duration": 0.5
   },
   {
-   "title": "Appel Alexandre Mariottini",
-   "tag": "Photographe",
+   "title": "Réservation chambres d'hôtes",
+   "tag": "Lieu",
+   "color": "from-cyan-500 to-blue-600",
+   "assignee": "Magalie",
+   "startDate": "2026-08-26",
+   "slot": "AM",
+   "duration": 0.5
+  },
+  {
+   "title": "Atelier budget",
+   "tag": "Budget",
    "color": "from-amber-500 to-orange-600",
    "assignee": "Moi",
-   "startDate": "2026-08-20",
-   "slot": "AM",
-   "duration": 0.5
-  },
-  {
-   "title": "Essayage About Love & Co",
-   "tag": "Robes",
-   "color": "from-rose-500 to-pink-600",
-   "assignee": "Mon binôme",
-   "startDate": "2026-08-21",
-   "slot": "AM",
-   "duration": 0.5
-  },
-  {
-   "title": "Cours d'essai Vidadanse",
-   "tag": "Danse",
-   "color": "from-cyan-500 to-blue-600",
-   "assignee": "Témoins",
-   "startDate": "2026-08-22",
+   "startDate": "2026-08-27",
    "slot": "PM",
    "duration": 0.5
   }
  ],
  "notes": [
   {
-   "title": "Archive — devis lieux consultés",
-   "color": "cyan",
-   "projectId": "proj-mariage-prestas",
-   "pinned": false,
-   "body": "Le choix est arrêté : Château Maucaillou, formule Élégance à 4 850 €.\n\nDevis reçus des autres domaines, conservés pour mémoire :\n\n• Arsac                        2 000,00 €\n• Domaine cordet               2 100,00 €\n• Relais Margaux               3 500,00 €\n• Domaine Gouat                4 100,00 €\n• Balac                        4 500,00 €\n• Marquis de termes            5 200,00 €\n• Haut Breton Larigaudière     5 350,00 €\n• Dauzac                       11 550,00 €"
-  },
-  {
-   "title": "Maucaillou — ce que comprend l'offre retenue",
+   "title": "Maucaillou — ce que comprend l'offre",
    "color": "indigo",
-   "projectId": "proj-mariage-prestas",
+   "projectId": "proj-prestas",
    "pinned": true,
-   "body": "Formule Élégance à 4 850 €.\n\nCompris : salle des Notables le samedi de 10h à 3h et le dimanche de 10h à 18h,\naccès au parc, espace traiteur, forfait ménage, 5 à 6 barriques, parking, fermeture du domaine à 3h.\n\nÀ prévoir en plus : deux services de vin du château imposés (compter environ une bouteille pour 5 personnes par service).\nHébergement sur place : 5 chambres d'hôtes entre 140 € et 160 € la nuit, petit-déjeuner inclus,\ntaxe de séjour en supplément, lit d'appoint possible (+30 €).\n\nLe domaine fournit une carte des hébergements alentours et une liste de prestataires partenaires."
-  },
-  {
-   "title": "Archive — pistes écartées",
-   "color": "rose",
-   "projectId": "proj-mariage-prestas",
-   "pinned": false,
-   "body": "Lieu — domaines contactés puis écartés :\n• Arsac\n• Duplessis\n• Haut Breton Larigaudière\n• Balac\n• Relais Margaux\n• Pontac Lynch\n• Segondillac\n• Giscours\n• Du tertre\n• Dauzac\n• Domaine cordet\n• Domaine Gouat\n• Marquis de termes\n• Vignobles bernaleau\n• Château Rauzan-Ségla\n\nTraiteurs consultés puis écartés :\n• Amchef à domicile\n• Roselyne Traiteur\n• Blaye en Bouche\n• Tottoc cuisine\n• Jean michel Crespo\n\nConservé au cas où il faudrait rouvrir une piste."
+   "body": "Formule Élégance à 4 850 €.\n\nCompris : salle des Notables le samedi de 10h à 3h et le dimanche de 10h à 18h,\naccès au parc, espace traiteur, forfait ménage, barriques, parking, fermeture du domaine à 3h.\n\nEn plus : deux services de vin du château imposés (environ une bouteille pour 5 personnes par service).\nHébergement sur place : 5 chambres d'hôtes entre 140 € et 160 € la nuit, petit-déjeuner inclus."
   },
   {
    "title": "Questions restantes pour le domaine",
    "color": "cyan",
+   "projectId": "proj-prestas",
+   "pinned": false,
+   "body": "1. Heure exacte de fin de la musique et de fermeture.\n2. Quantité précise des deux services de vin imposés.\n3. Mobilier, vaisselle et nappage : inclus ou à louer ?\n4. Capacité assise maximum en cas de pluie.\n5. Accès des prestataires la veille pour l'installation.\n6. Échéancier de paiement et conditions d'annulation."
+  },
+  {
+   "title": "Archive — prestataires écartés",
+   "color": "rose",
    "projectId": "",
    "pinned": false,
-   "body": "À caler avec Maucaillou avant signature :\n\n1. Heure exacte de fin de la musique et de fermeture du domaine.\n2. Quantité précise des deux services de vin imposés.\n3. Mobilier, vaisselle et nappage : inclus ou à louer ?\n4. Capacité assise maximum en cas de pluie.\n5. Accès des prestataires la veille pour l'installation.\n6. Conditions d'annulation et échéancier de paiement.\n7. Parking et navettes depuis Bordeaux."
+   "body": "Lieux consultés puis écartés : Arsac, Duplessis, Haut Breton Larigaudière, Balac, Relais Margaux,\nPontac Lynch, Segondillac, Giscours, Du Tertre, Dauzac, Domaine Cordet, Domaine Gouat,\nMarquis de Termes, Vignobles Bernaleau, Château Rauzan-Ségla.\n\nTraiteurs consultés puis écartés : Amchef à domicile, Roselyne Traiteur, Blaye en Bouche,\nTottoc Cuisine, Jean-Michel Crespo.\n\nConservé au cas où il faudrait rouvrir une piste."
+  },
+  {
+   "title": "Rétroplanning — les jalons",
+   "color": "amber",
+   "projectId": "",
+   "pinned": true,
+   "body": "Mariage le samedi 31 juillet 2027.\n\n12 mois avant : lieu, traiteur, wedding planner.\n10 mois avant : save the date, photographe.\n8 mois avant : vidéaste, DJ, robe.\n6 mois avant : fleuriste, faire-part, hébergement.\n5 mois avant : maquillage, coiffure, chanteurs.\n4 mois avant : cours de danse, navettes, décoration.\n2 mois avant : plan de table, essayages finaux, playlist.\nLa veille : répétition et installation."
   }
  ]
 };
@@ -1442,7 +1243,7 @@ function AuraPlanApp() {
 
   const [isDark, setIsDark] = useState(prefs.isDark !== false);
   const [activeTab, setActiveTab] = useState(['roadmap', 'kanban', 'planning', 'notes'].includes(prefs.tab) ? prefs.tab : 'roadmap');
-  const [columnWidth, setColumnWidth] = useState(clamp(Number(prefs.columnWidth) || 110, 5, 240));
+  const [columnWidth, setColumnWidth] = useState(clamp(Number(prefs.columnWidth) || 110, 3, 240));
 
   const [data, setData] = useState(loadData);
   const dataRef = useRef(data);
@@ -1452,6 +1253,8 @@ function AuraPlanApp() {
   const planning = data.planning;
   const notes = data.notes;
   const columnLabels = data.columnLabels;
+  const event = data.event;
+  const daysToEvent = diffDays(parseDate(event.date), parseDate(TODAY_STR));
   const statusLabel = useCallback((s) => (columnLabels && columnLabels[s]) || STATUS_META[s].label, [columnLabels]);
 
   const [toasts, setToasts] = useState([]);
@@ -1618,9 +1421,11 @@ function AuraPlanApp() {
       consider(p.startDate, p.duration);
       p.tasks.forEach((t) => { consider(t.startDate, t.duration); t.subtasks.forEach((s) => consider(s.startDate, s.duration)); });
     });
+    const ev = parseDate(event.date);
+    if (activeTab !== 'planning') { if (ev < min) min = ev; if (ev > max) max = ev; }
     const start = getMonday(addDays(min, -3));
     return { timelineStart: start, totalDays: clamp(diffDays(addDays(max, 5), start), 28, 900) };
-  }, [projects, planning, activeTab]);
+  }, [projects, planning, activeTab, event.date]);
 
   const timelineWeeks = useMemo(() => {
     const weeks = []; let current = null;
@@ -1961,7 +1766,7 @@ function AuraPlanApp() {
   const fitAll = useCallback(() => {
     const vp = document.getElementById('timeline-viewport');
     if (!vp) return;
-    setColumnWidth(clamp(Math.floor((vp.clientWidth - nameColRef.current - 16) / Math.max(1, totalDays)), 5, 240));
+    setColumnWidth(clamp(Math.floor((vp.clientWidth - nameColRef.current - 16) / Math.max(1, totalDays)), 3, 240));
     vp.scrollLeft = 0;
   }, [totalDays]);
 
@@ -2175,13 +1980,18 @@ function AuraPlanApp() {
     <div className="flex" style={{ width: `${timelineWidth}px` }}>
       {Array.from({ length: totalDays }).map((_, i) => {
         const d = addDays(timelineStart, i);
-        const isToday = formatDateIso(d) === TODAY_STR;
+        const iso = formatDateIso(d);
+        const isToday = iso === TODAY_STR;
+        const isEvent = iso === event.date;
         const isWeekend = d.getDay() === 0 || d.getDay() === 6;
         const count = dayLoad.get(i) || 0;
         return (
           <div key={i} style={{ width: `${columnWidth}px`, minWidth: `${columnWidth}px` }}
-            className={`flex h-full flex-col justify-between overflow-hidden border-r ${T.grid} ${d.getDay() === 1 ? 'border-l-2 border-l-indigo-500/40' : ''}
-              ${isToday ? 'bg-indigo-500/25 text-indigo-300' : isWeekend ? (isDark ? 'bg-white/[0.03] text-slate-500' : 'bg-slate-100 text-slate-400') : T.muted}`}>
+            className={`relative flex h-full flex-col justify-between overflow-visible border-r ${T.grid} ${d.getDay() === 1 ? 'border-l-2 border-l-indigo-500/40' : ''}
+              ${isEvent ? 'jour-j-col border-x-2 border-x-rose-400/80 text-rose-300' : isToday ? 'bg-indigo-500/25 text-indigo-300' : isWeekend ? (isDark ? 'bg-white/[0.03] text-slate-500' : 'bg-slate-100 text-slate-400') : T.muted}`}>
+            {isEvent ? (
+              <span className="jour-j-pin pointer-events-none absolute -top-0.5 left-1/2 z-20 -translate-x-1/2 text-[10px]" title={`${event.label} — ${formatDateFr(event.date)}`}>💍</span>
+            ) : null}
             {ultra ? (
               <div className="flex h-full items-end justify-center pb-1">
                 {d.getDate() === 1 ? <span className="h-2 w-0.5 rounded bg-indigo-400" /> : null}
@@ -2213,16 +2023,25 @@ function AuraPlanApp() {
     <div className="pointer-events-none absolute inset-0 flex">
       {Array.from({ length: totalDays }).map((_, i) => {
         const d = addDays(timelineStart, i);
-        const isToday = formatDateIso(d) === TODAY_STR;
+        const iso = formatDateIso(d);
+        const isToday = iso === TODAY_STR;
+        const isEvent = iso === event.date;
         const isWeekend = d.getDay() === 0 || d.getDay() === 6;
         return (
-          <div key={rowKey + '-' + i} style={{ width: `${columnWidth}px`, minWidth: `${columnWidth}px` }}
+          <div key={rowKey + '-' + i} style={{ width: `${Math.max(2, columnWidth)}px`, minWidth: `${columnWidth}px` }}
             className={`h-full border-r ${T.grid} ${d.getDay() === 1 ? 'border-l-2 border-l-indigo-500/25' : ''}
-              ${isToday ? 'bg-indigo-500/10' : isWeekend ? (isDark ? 'bg-white/[0.03]' : 'bg-slate-100/70') : ''}`} />
+              ${isEvent ? 'jour-j-col border-x-2 border-x-rose-400/80' : isToday ? 'bg-indigo-500/10' : isWeekend ? (isDark ? 'bg-white/[0.03]' : 'bg-slate-100/70') : ''}`} />
         );
       })}
     </div>
   );
+
+  const isEventBar = (startIso, duration) => {
+    const s = parseDate(startIso);
+    const e = addDays(s, Math.max(0, Math.ceil(duration) - 1));
+    const ev = parseDate(event.date);
+    return ev >= s && ev <= e;
+  };
 
   const barGeometry = (startUnits, lenUnits, isDragging) => {
     let left = startUnits * columnWidth;
@@ -2311,11 +2130,18 @@ function AuraPlanApp() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button type="button" onClick={() => setIsConfigOpen(true)}
+              title={`${event.label} — ${formatDateFr(event.date)} (cliquez pour changer la date)`}
+              className="flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-[11px] font-extrabold text-rose-300 transition hover:bg-rose-500/20">
+              <span className="jour-j-pin">💍</span>
+              {daysToEvent > 0 ? `J-${daysToEvent}` : daysToEvent === 0 ? "C'est aujourd'hui" : `J+${Math.abs(daysToEvent)}`}
+              <span className="hidden font-mono font-medium opacity-70 xl:inline">{formatDateFr(event.date)}</span>
+            </button>
             <button type="button" onClick={undo} className={btnQuiet} title="Ctrl+Z">Annuler</button>
             {activeTab !== 'kanban' ? (
               <>
                 <span className={`font-semibold ${T.faint}`}>Zoom</span>
-                <input type="range" min="5" max="240" value={columnWidth} onChange={(e) => setColumnWidth(Number(e.target.value))} className="w-28" aria-label="Zoom" />
+                <input type="range" min="3" max="240" value={columnWidth} onChange={(e) => setColumnWidth(Number(e.target.value))} className="w-28" aria-label="Zoom" />
                 <button type="button" onClick={fitAll} className={btnSecondary}>Tout afficher</button>
               </>
             ) : null}
@@ -2395,7 +2221,7 @@ function AuraPlanApp() {
                             <div style={{ left: `${geo.left}px`, width: `${Math.max(columnWidth * 0.6, geo.width)}px` }}
                               onMouseDown={(e) => startDrag(e, { kind: 'project', id: proj.id, action: 'move', unit: 1, startUnits, lenUnits: proj.duration })}
                               onClick={() => { if (!movedRef.current) { setSelectedProjectId(proj.id); setIsRightPanelOpen(true); } }}
-                              className={`group absolute top-3 flex h-8 cursor-grab items-center overflow-hidden rounded-lg border border-white/20 bg-gradient-to-r ${proj.color} shadow-lg active:cursor-grabbing ${dragging ? 'z-[15] ring-2 ring-indigo-400' : 'z-10'}`}>
+                              className={`group absolute top-3 flex h-8 cursor-grab items-center overflow-hidden rounded-lg border bg-gradient-to-r ${proj.color} shadow-lg active:cursor-grabbing ${isEventBar(proj.startDate, proj.duration) ? 'jour-j-bar border-rose-300/80' : 'border-white/20'} ${dragging ? 'z-[15] ring-2 ring-indigo-400' : 'z-10'}`}>
                               <div className="absolute inset-0 bg-slate-950/60" />
                               <div className={`absolute inset-y-0 left-0 bg-gradient-to-r ${proj.color}`} style={{ width: `${pct}%` }} />
                               <div onMouseDown={(e) => startDrag(e, { kind: 'project', id: proj.id, action: 'resize-left', unit: 1, startUnits, lenUnits: proj.duration })} className="absolute inset-y-0 left-0 z-20 w-2.5 cursor-ew-resize bg-white/40 opacity-0 group-hover:opacity-100" />
@@ -2446,7 +2272,7 @@ function AuraPlanApp() {
                                   <div style={{ left: `${tGeo.left}px`, width: `${Math.max(columnWidth * 0.5, tGeo.width)}px` }}
                                     onMouseDown={(e) => startDrag(e, { kind: 'task', id: task.id, action: 'move', unit: 1, startUnits: tStart, lenUnits: task.duration })}
                                     onClick={() => { if (!movedRef.current) setEditingTask({ ...task, projectId: proj.id }); }}
-                                    className={`group absolute top-2 flex h-6 cursor-grab items-center rounded border border-white/20 bg-gradient-to-r ${proj.color} px-2 text-[10px] font-bold text-white shadow active:cursor-grabbing ${task.status === 'DONE' ? 'opacity-50' : ''} ${tDragging ? 'z-[15]' : ''}`}>
+                                    className={`group absolute top-2 flex h-6 cursor-grab items-center rounded border bg-gradient-to-r ${proj.color} px-2 text-[10px] font-bold text-white shadow active:cursor-grabbing ${isEventBar(task.startDate, task.duration) ? 'jour-j-bar border-rose-300/80' : 'border-white/20'} ${task.status === 'DONE' ? 'opacity-50' : ''} ${tDragging ? 'z-[15]' : ''}`}>
                                     <div onMouseDown={(e) => startDrag(e, { kind: 'task', id: task.id, action: 'resize-left', unit: 1, startUnits: tStart, lenUnits: task.duration })} className="absolute inset-y-0 left-0 w-2 cursor-ew-resize bg-white/40 opacity-0 group-hover:opacity-100" />
                                     <span className="pointer-events-none truncate">{task.title}</span>
                                     <div onMouseDown={(e) => startDrag(e, { kind: 'task', id: task.id, action: 'resize-right', unit: 1, startUnits: tStart, lenUnits: task.duration })} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-white/40 opacity-0 group-hover:opacity-100" />
@@ -2735,18 +2561,10 @@ function AuraPlanApp() {
                                   className={`group pointer-events-auto absolute flex h-6 cursor-grab items-center rounded-md border border-white/20 bg-gradient-to-r ${entry.color} px-1.5 text-[10px] font-bold text-white shadow-md transition hover:brightness-110 active:cursor-grabbing ${dragging ? 'z-[15] ring-2 ring-indigo-300' : 'z-10'}`}>
                                   <div onMouseDown={(e) => startDrag(e, { kind: 'entry', id: entry.id, action: 'resize-left', unit: 0.5, startUnits: entry.startHalf, lenUnits: entry.lenHalf, person: row.person })} className="absolute inset-y-0 left-0 w-2 cursor-ew-resize rounded-l-md bg-white/40 opacity-0 group-hover:opacity-100" />
                                   <div className="pointer-events-none flex w-full items-center justify-between gap-1 px-1">
-                                    {tiny ? (
-                                      <span className="h-1.5 w-1.5 rounded-full bg-white/90 shadow" />
-                                    ) : (
-                                      <span className="truncate">{compact ? '' : (entry.slot === 'PM' ? '☾ ' : '☀ ')}{entry.title}</span>
-                                    )}
+                                    <span className="truncate">{tiny || compact ? '' : (entry.slot === 'PM' ? '☾ ' : '☀ ')}{entry.title}</span>
                                     {!compact && entry.lenHalf >= 2 ? <span className="shrink-0 rounded bg-black/35 px-1 font-mono text-[9px]">{entry.duration} j</span> : null}
                                   </div>
-                                  {tiny ? (
-                                    <span className={`pointer-events-none absolute left-full top-1/2 ml-1 -translate-y-1/2 whitespace-nowrap rounded px-1 text-[9px] font-bold ${isDark ? 'bg-[#0E1626]/85 text-slate-100' : 'bg-white/90 text-slate-800'}`}>
-                                      {entry.title}
-                                    </span>
-                                  ) : null}
+
                                   <div onMouseDown={(e) => startDrag(e, { kind: 'entry', id: entry.id, action: 'resize-right', unit: 0.5, startUnits: entry.startHalf, lenUnits: entry.lenHalf, person: row.person })} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize rounded-r-md bg-white/40 opacity-0 group-hover:opacity-100" />
                                   {dragging ? (
                                     <div className="pointer-events-none absolute -top-7 left-0 whitespace-nowrap rounded-md border border-indigo-500 bg-slate-900 px-2 py-1 font-mono text-[10px] text-slate-100 shadow-xl">
@@ -2886,12 +2704,16 @@ function AuraPlanApp() {
               <Field T={T} label="Collaborateur"><input className={inputCls} list="collab-list" value={entryForm.assignee} onChange={(e) => setEntryForm({ ...entryForm, assignee: e.target.value })} /></Field>
               <Field T={T} label="Durée (jours)"><input type="number" step="0.5" min="0.5" className={inputCls} value={entryForm.duration} onChange={(e) => setEntryForm({ ...entryForm, duration: e.target.value })} /></Field>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <Field T={T} label="Date"><input type="date" className={inputCls} value={entryForm.startDate} onChange={(e) => setEntryForm({ ...entryForm, startDate: e.target.value })} /></Field>
               <Field T={T} label="Créneau">
                 <select className={inputCls} value={entryForm.slot} onChange={(e) => setEntryForm({ ...entryForm, slot: e.target.value })}>
                   <option value="AM">☀ Matin</option><option value="PM">☾ Après-midi</option>
                 </select>
+              </Field>
+              <Field T={T} label="Fin (incluse)">
+                <input type="date" className={inputCls} min={entryForm.startDate} value={endFromDuration(entryForm.startDate, entryForm.duration)}
+                  onChange={(e) => { if (!isIsoDate(e.target.value)) return; setEntryForm({ ...entryForm, duration: durationFromEnd(entryForm.startDate, e.target.value, 0.5) }); }} />
               </Field>
             </div>
           </div>
@@ -2929,7 +2751,11 @@ function AuraPlanApp() {
                 </select>
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
+              <Field T={T} label="Fin (incluse)">
+                <input type="date" className={inputCls} min={editingEntry.startDate} value={endFromDuration(editingEntry.startDate, editingEntry.duration)}
+                  onChange={(e) => { if (!isIsoDate(e.target.value)) return; setEditingEntry({ ...editingEntry, duration: durationFromEnd(editingEntry.startDate, e.target.value, 0.5) }); }} />
+              </Field>
               <Field T={T} label="Durée (jours)"><input type="number" step="0.5" min="0.5" className={inputCls} value={editingEntry.duration} onChange={(e) => setEditingEntry({ ...editingEntry, duration: Number(e.target.value) })} /></Field>
               <Field T={T} label="Couleur">
                 <select className={inputCls} value={editingEntry.color} onChange={(e) => setEditingEntry({ ...editingEntry, color: e.target.value })}>
@@ -2991,8 +2817,12 @@ function AuraPlanApp() {
                 </select>
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <Field T={T} label="Début"><input type="date" className={inputCls} value={projectForm.startDate} onChange={(e) => setProjectForm({ ...projectForm, startDate: e.target.value })} /></Field>
+              <Field T={T} label="Fin (incluse)">
+                <input type="date" className={inputCls} min={projectForm.startDate} value={endFromDuration(projectForm.startDate, projectForm.duration)}
+                  onChange={(e) => { if (!isIsoDate(e.target.value)) return; setProjectForm({ ...projectForm, duration: durationFromEnd(projectForm.startDate, e.target.value, 1) }); }} />
+              </Field>
               <Field T={T} label="Durée (jours)"><input type="number" min="1" className={inputCls} value={projectForm.duration} onChange={(e) => setProjectForm({ ...projectForm, duration: e.target.value })} /></Field>
             </div>
           </div>
@@ -3031,8 +2861,14 @@ function AuraPlanApp() {
                   </select>
                 </Field>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <Field T={T} label="Début"><input type="date" className={inputCls} value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></Field>
+                <Field T={T} label="Fin (incluse)">
+                  <input type="date" className={inputCls} min={form.startDate} value={endFromDuration(form.startDate, form.duration)}
+                    onChange={(e) => { if (!isIsoDate(e.target.value)) return; setForm({ ...form, duration: durationFromEnd(form.startDate, e.target.value, 0.5) }); }} />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <Field T={T} label="Durée (j)"><input type="number" step="0.5" min="0.5" className={inputCls} value={form.duration} onChange={(e) => setForm({ ...form, duration: Number(e.target.value) })} /></Field>
                 <Field T={T} label="Colonne Kanban">
                   <select className={inputCls} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
@@ -3089,8 +2925,12 @@ function AuraPlanApp() {
                 </select>
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <Field T={T} label="Début"><input type="date" className={inputCls} value={subtaskForm.startDate} onChange={(e) => setSubtaskForm({ ...subtaskForm, startDate: e.target.value })} /></Field>
+              <Field T={T} label="Fin (incluse)">
+                <input type="date" className={inputCls} min={subtaskForm.startDate} value={endFromDuration(subtaskForm.startDate, subtaskForm.duration)}
+                  onChange={(e) => { if (!isIsoDate(e.target.value)) return; setSubtaskForm({ ...subtaskForm, duration: durationFromEnd(subtaskForm.startDate, e.target.value, 0.5) }); }} />
+              </Field>
               <Field T={T} label="Durée (j)"><input type="number" step="0.5" min="0.5" className={inputCls} value={subtaskForm.duration} onChange={(e) => setSubtaskForm({ ...subtaskForm, duration: Number(e.target.value) })} /></Field>
             </div>
             <Field T={T} label="Détail (tarif, contact…)"><textarea rows="3" className={inputCls} value={subtaskForm.notes || ''} onChange={(e) => setSubtaskForm({ ...subtaskForm, notes: e.target.value })} /></Field>
@@ -3110,6 +2950,19 @@ function AuraPlanApp() {
               <button type="button" className={`flex-1 ${btnSecondary}`} onClick={() => fileInputRef.current && fileInputRef.current.click()}>Importer un JSON</button>
               <input ref={fileInputRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => { importJson(e.target.files && e.target.files[0]); e.target.value = ''; }} />
             </div>
+            <div className={`space-y-3 rounded-xl border p-3 ${T.raise}`}>
+              <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Jour J</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <Field T={T} label="Date" hint="Repère animé sur la roadmap.">
+                  <input type="date" className={inputCls} value={event.date}
+                    onChange={(e) => { if (isIsoDate(e.target.value)) commit((prev) => ({ ...prev, event: { ...prev.event, date: e.target.value } })); }} />
+                </Field>
+                <Field T={T} label="Libellé">
+                  <input className={inputCls} value={event.label} onChange={(e) => commit((prev) => ({ ...prev, event: { ...prev.event, label: e.target.value } }))} />
+                </Field>
+              </div>
+            </div>
+
             <div className={`space-y-3 rounded-xl border p-3 ${T.raise}`}>
               <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Dépôt GitHub</h4>
               <div className="grid grid-cols-2 gap-3">
