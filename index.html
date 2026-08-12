@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>AuraPlan Studio — Roadmap, Kanban, Planning & Notes</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Cdefs%3E%3ClinearGradient id=%27g%27 x1=%270%27 y1=%270%27 x2=%271%27 y2=%271%27%3E%3Cstop offset=%270%27 stop-color=%27%236366F1%27/%3E%3Cstop offset=%271%27 stop-color=%27%23D946EF%27/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width=%2764%27 height=%2764%27 rx=%2716%27 fill=%27url(%23g)%27/%3E%3Cpath d=%27M32 14 L50 48 H14 Z%27 fill=%27%23fff%27/%3E%3C/svg%3E" />
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -232,9 +233,17 @@ const normalizeNote = (n) => {
   };
 };
 
+const normalizeColumnLabels = (raw) => {
+  const o = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  STATUSES.forEach((s) => { out[s] = safeText(o[s], STATUS_META[s].label); });
+  return out;
+};
+
 const normalizeData = (raw) => {
   const o = raw && typeof raw === 'object' ? raw : {};
   return {
+    columnLabels: normalizeColumnLabels(o.columnLabels),
     projects: Array.isArray(o.projects) ? o.projects.map(normalizeProject) : [],
     planning: Array.isArray(o.planning) ? o.planning.map(normalizeEntry)
       : Array.isArray(o.planningEntries) ? o.planningEntries.map(normalizeEntry) : [],
@@ -255,203 +264,123 @@ const SEED_RAW = {
    "tasks": [
     {
      "id": "t-lieu",
-     "title": "Lieu de réception",
+     "title": "Lieu — Château Maucaillou (réservé)",
      "assignee": "Moi",
      "startDate": "2026-08-10",
-     "duration": 34,
+     "duration": 24,
      "status": "IN_PROGRESS",
-     "priority": "URGENT",
+     "priority": "HIGH",
      "rank": 0,
-     "notes": "",
+     "notes": "Formule Élégance 4 850 €. Samedi 10h–3h + dimanche 10h–18h.",
      "subtasks": [
       {
-       "title": "Maucaillou",
+       "title": "Domaine retenu : Château Maucaillou",
        "assignee": "Moi",
-       "status": "IN_REVIEW",
+       "status": "DONE",
        "startDate": "2026-08-10",
-       "duration": 2,
-       "notes": "Devis : 4 850,00 €"
+       "duration": 1,
+       "notes": "Formule Élégance — 4 850 €. Salle des Notables, parc, ménage et parking inclus."
       },
       {
-       "title": "Arsac",
-       "assignee": "Moi",
-       "status": "IN_REVIEW",
-       "startDate": "2026-08-12",
-       "duration": 2,
-       "notes": "Devis : 2 000,00 €"
-      },
-      {
-       "title": "Duplessis",
+       "title": "Signer le contrat de location",
        "assignee": "Moi",
        "status": "IN_PROGRESS",
-       "startDate": "2026-08-14",
-       "duration": 2,
-       "notes": "Statut Notion : Attente réponse"
+       "startDate": "2026-08-12",
+       "duration": 3,
+       "notes": "Vérifier les horaires de fin et les deux services de vin imposés."
       },
       {
-       "title": "Haut Breton Larigaudière",
+       "title": "Verser l'acompte",
        "assignee": "Moi",
-       "status": "IN_REVIEW",
+       "status": "TODO",
        "startDate": "2026-08-16",
        "duration": 2,
-       "notes": "Devis : 5 350,00 €"
+       "notes": ""
       },
       {
-       "title": "Balac",
-       "assignee": "Moi",
-       "status": "IN_REVIEW",
-       "startDate": "2026-08-18",
-       "duration": 2,
-       "notes": "Devis : 4 500,00 €"
+       "title": "Réserver les 5 chambres d'hôtes",
+       "assignee": "Mon binôme",
+       "status": "TODO",
+       "startDate": "2026-08-19",
+       "duration": 3,
+       "notes": "140–160 € la nuit, petit-déjeuner inclus, taxe de séjour en sus."
       },
       {
-       "title": "Relais Margaux",
-       "assignee": "Moi",
-       "status": "IN_REVIEW",
-       "startDate": "2026-08-20",
-       "duration": 2,
-       "notes": "Devis : 3 500,00 €"
-      },
-      {
-       "title": "Pontac Lynch",
-       "assignee": "Moi",
-       "status": "IN_PROGRESS",
-       "startDate": "2026-08-22",
-       "duration": 2,
-       "notes": "Statut Notion : Attente réponse"
-      },
-      {
-       "title": "Segondillac",
-       "assignee": "Moi",
-       "status": "IN_PROGRESS",
+       "title": "Repérage et plan de salle",
+       "assignee": "Mon binôme",
+       "status": "TODO",
        "startDate": "2026-08-24",
-       "duration": 2,
-       "notes": "Statut Notion : Attente réponse"
+       "duration": 3,
+       "notes": ""
       },
       {
-       "title": "Giscours",
-       "assignee": "Moi",
-       "status": "IN_PROGRESS",
-       "startDate": "2026-08-26",
+       "title": "Confirmer l'accès prestataires la veille",
+       "assignee": "Wedding planner",
+       "status": "TODO",
+       "startDate": "2026-08-29",
        "duration": 2,
-       "notes": "Statut Notion : Attente réponse"
-      },
-      {
-       "title": "Du tertre",
-       "assignee": "Moi",
-       "status": "IN_PROGRESS",
-       "startDate": "2026-08-28",
-       "duration": 2,
-       "notes": "Statut Notion : Attente réponse"
-      },
-      {
-       "title": "Dauzac",
-       "assignee": "Moi",
-       "status": "IN_REVIEW",
-       "startDate": "2026-08-30",
-       "duration": 2,
-       "notes": "Devis : 11 550,00 €"
-      },
-      {
-       "title": "Domaine cordet",
-       "assignee": "Moi",
-       "status": "IN_REVIEW",
-       "startDate": "2026-09-01",
-       "duration": 2,
-       "notes": "Devis : 2 100,00 €"
-      },
-      {
-       "title": "Domaine Gouat",
-       "assignee": "Moi",
-       "status": "IN_REVIEW",
-       "startDate": "2026-09-03",
-       "duration": 2,
-       "notes": "Devis : 4 100,00 €"
-      },
-      {
-       "title": "Marquis de termes",
-       "assignee": "Moi",
-       "status": "IN_REVIEW",
-       "startDate": "2026-09-05",
-       "duration": 2,
-       "notes": "Devis : 5 200,00 €"
-      },
-      {
-       "title": "Vignobles bernaleau",
-       "assignee": "Moi",
-       "status": "IN_PROGRESS",
-       "startDate": "2026-09-07",
-       "duration": 2,
-       "notes": "Statut Notion : Attente réponse"
-      },
-      {
-       "title": "Château Rauzan-Ségla",
-       "assignee": "Moi",
-       "status": "IN_PROGRESS",
-       "startDate": "2026-09-09",
-       "duration": 2,
-       "notes": "Statut Notion : Attente réponse"
+       "notes": ""
       }
      ]
     },
     {
      "id": "t-traiteur",
-     "title": "Traiteur",
+     "title": "Traiteur — Damien Bernardet (retenu)",
      "assignee": "Mon binôme",
-     "startDate": "2026-08-31",
-     "duration": 28,
+     "startDate": "2026-08-17",
+     "duration": 26,
      "status": "IN_PROGRESS",
-     "priority": "URGENT",
+     "priority": "HIGH",
      "rank": 0,
      "notes": "",
      "subtasks": [
       {
-       "title": "Damien Bernardet",
+       "title": "Traiteur retenu : Damien Bernardet",
        "assignee": "Mon binôme",
-       "status": "IN_REVIEW",
-       "startDate": "2026-08-31",
-       "duration": 2,
-       "notes": "Statut Notion : A répondu"
+       "status": "DONE",
+       "startDate": "2026-08-17",
+       "duration": 1,
+       "notes": ""
       },
       {
-       "title": "Amchef à domicile",
+       "title": "Dégustation menu",
        "assignee": "Mon binôme",
-       "status": "IN_REVIEW",
-       "startDate": "2026-09-04",
-       "duration": 2,
-       "notes": "Statut Notion : A répondu"
+       "status": "IN_PROGRESS",
+       "startDate": "2026-08-18",
+       "duration": 1,
+       "notes": ""
       },
       {
-       "title": "Roselyne Traiteur",
+       "title": "Valider le menu définitif",
        "assignee": "Mon binôme",
        "status": "TODO",
-       "startDate": "2026-09-08",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
+       "startDate": "2026-08-22",
+       "duration": 3,
+       "notes": ""
       },
       {
-       "title": "Blaye en Bouche",
-       "assignee": "Mon binôme",
+       "title": "Recenser allergies et régimes spéciaux",
+       "assignee": "Moi",
        "status": "TODO",
-       "startDate": "2026-09-12",
-       "duration": 2,
-       "notes": "Statut Notion : À faire"
+       "startDate": "2026-08-27",
+       "duration": 3,
+       "notes": ""
       },
       {
-       "title": "Tottoc cuisine",
+       "title": "Verser l'acompte et signer",
        "assignee": "Mon binôme",
        "status": "TODO",
-       "startDate": "2026-09-16",
+       "startDate": "2026-09-01",
        "duration": 2,
-       "notes": "Statut Notion : À faire"
+       "notes": ""
       },
       {
-       "title": "Jean michel Crespo",
-       "assignee": "Mon binôme",
+       "title": "Caler la logistique avec le domaine",
+       "assignee": "Wedding planner",
        "status": "TODO",
-       "startDate": "2026-09-20",
+       "startDate": "2026-09-06",
        "duration": 2,
-       "notes": "Statut Notion : À faire"
+       "notes": ""
       }
      ]
     },
@@ -1289,49 +1218,49 @@ const SEED_RAW = {
  ],
  "planning": [
   {
-   "title": "Visite Maucaillou",
+   "title": "Signature contrat Maucaillou",
    "tag": "Lieu",
    "color": "from-indigo-500 to-violet-600",
    "assignee": "Moi",
-   "startDate": "2026-08-11",
+   "startDate": "2026-08-12",
    "slot": "AM",
    "duration": 0.5
   },
   {
-   "title": "Visite Château Balac",
+   "title": "Virement acompte lieu",
    "tag": "Lieu",
-   "color": "from-indigo-500 to-violet-600",
+   "color": "from-emerald-500 to-teal-600",
    "assignee": "Moi",
-   "startDate": "2026-08-11",
+   "startDate": "2026-08-13",
    "slot": "PM",
    "duration": 0.5
   },
   {
-   "title": "Visite Relais Margaux",
+   "title": "Réservation chambres d'hôtes",
+   "tag": "Lieu",
+   "color": "from-cyan-500 to-blue-600",
+   "assignee": "Mon binôme",
+   "startDate": "2026-08-14",
+   "slot": "AM",
+   "duration": 0.5
+  },
+  {
+   "title": "Repérage & plan de salle",
    "tag": "Lieu",
    "color": "from-indigo-500 to-violet-600",
    "assignee": "Mon binôme",
-   "startDate": "2026-08-13",
-   "slot": "AM",
-   "duration": 0.5
-  },
-  {
-   "title": "Relancer les domaines sans réponse",
-   "tag": "Lieu",
-   "color": "from-cyan-500 to-blue-600",
-   "assignee": "Moi",
-   "startDate": "2026-08-14",
+   "startDate": "2026-08-19",
    "slot": "PM",
-   "duration": 0.5
+   "duration": 1.5
   },
   {
-   "title": "Comparatif des devis lieux",
-   "tag": "Budget",
-   "color": "from-emerald-500 to-teal-600",
-   "assignee": "Moi",
-   "startDate": "2026-08-15",
+   "title": "Point hebdo prestataires",
+   "tag": "Rituel",
+   "color": "from-slate-500 to-slate-700",
+   "assignee": "Wedding planner",
+   "startDate": "2026-08-17",
    "slot": "AM",
-   "duration": 1.5
+   "duration": 0.5
   },
   {
    "title": "Dégustation Damien Bernardet",
@@ -1381,32 +1310,32 @@ const SEED_RAW = {
  ],
  "notes": [
   {
-   "title": "Devis lieux reçus — comparatif",
-   "color": "emerald",
-   "projectId": "proj-mariage-prestas",
-   "pinned": true,
-   "body": "Classés du moins cher au plus cher (location seule) :\n\n• Arsac                        2 000,00 €\n• Domaine cordet               2 100,00 €\n• Relais Margaux               3 500,00 €\n• Domaine Gouat                4 100,00 €\n• Balac                        4 500,00 €\n• Maucaillou                   4 850,00 €\n• Marquis de termes            5 200,00 €\n• Haut Breton Larigaudière     5 350,00 €\n• Dauzac                       11 550,00 €\n\nÀ vérifier pour chaque domaine : ce que couvre exactement le tarif (mobilier, ménage, vaisselle),\nl'heure de fin, et les prestations imposées."
-  },
-  {
-   "title": "Maucaillou — ce que comprend l'offre",
-   "color": "indigo",
+   "title": "Archive — devis lieux consultés",
+   "color": "cyan",
    "projectId": "proj-mariage-prestas",
    "pinned": false,
+   "body": "Le choix est arrêté : Château Maucaillou, formule Élégance à 4 850 €.\n\nDevis reçus des autres domaines, conservés pour mémoire :\n\n• Arsac                        2 000,00 €\n• Domaine cordet               2 100,00 €\n• Relais Margaux               3 500,00 €\n• Domaine Gouat                4 100,00 €\n• Balac                        4 500,00 €\n• Marquis de termes            5 200,00 €\n• Haut Breton Larigaudière     5 350,00 €\n• Dauzac                       11 550,00 €"
+  },
+  {
+   "title": "Maucaillou — ce que comprend l'offre retenue",
+   "color": "indigo",
+   "projectId": "proj-mariage-prestas",
+   "pinned": true,
    "body": "Formule Élégance à 4 850 €.\n\nCompris : salle des Notables le samedi de 10h à 3h et le dimanche de 10h à 18h,\naccès au parc, espace traiteur, forfait ménage, 5 à 6 barriques, parking, fermeture du domaine à 3h.\n\nÀ prévoir en plus : deux services de vin du château imposés (compter environ une bouteille pour 5 personnes par service).\nHébergement sur place : 5 chambres d'hôtes entre 140 € et 160 € la nuit, petit-déjeuner inclus,\ntaxe de séjour en supplément, lit d'appoint possible (+30 €).\n\nLe domaine fournit une carte des hébergements alentours et une liste de prestataires partenaires."
   },
   {
-   "title": "Domaines à relancer",
-   "color": "amber",
+   "title": "Archive — pistes écartées",
+   "color": "rose",
    "projectId": "proj-mariage-prestas",
    "pinned": false,
-   "body": "Sans réponse à ce jour :\n\n• Duplessis\n• Pontac Lynch\n• Segondillac\n• Giscours\n• Du tertre\n• Vignobles bernaleau\n• Château Rauzan-Ségla\n\nRelance par mail puis par téléphone sous 5 jours. Noter ici la date de relance."
+   "body": "Lieu — domaines contactés puis écartés :\n• Arsac\n• Duplessis\n• Haut Breton Larigaudière\n• Balac\n• Relais Margaux\n• Pontac Lynch\n• Segondillac\n• Giscours\n• Du tertre\n• Dauzac\n• Domaine cordet\n• Domaine Gouat\n• Marquis de termes\n• Vignobles bernaleau\n• Château Rauzan-Ségla\n\nTraiteurs consultés puis écartés :\n• Amchef à domicile\n• Roselyne Traiteur\n• Blaye en Bouche\n• Tottoc cuisine\n• Jean michel Crespo\n\nConservé au cas où il faudrait rouvrir une piste."
   },
   {
-   "title": "Questions à poser à chaque domaine",
+   "title": "Questions restantes pour le domaine",
    "color": "cyan",
    "projectId": "",
    "pinned": false,
-   "body": "1. Le tarif couvre-t-il samedi ET dimanche ?\n2. Heure de fin de la musique, heure de fin du domaine.\n3. Traiteur libre ou liste imposée ? Droit de bouchon ?\n4. Vin du château imposé, en quelle quantité ?\n5. Mobilier, vaisselle, nappage inclus ?\n6. Capacité assise maximum en cas de pluie.\n7. Nombre de couchages sur place et tarifs.\n8. Montant de l'acompte et conditions d'annulation.\n9. Accès prestataires la veille pour l'installation ?\n10. Parking et navettes."
+   "body": "À caler avec Maucaillou avant signature :\n\n1. Heure exacte de fin de la musique et de fermeture du domaine.\n2. Quantité précise des deux services de vin imposés.\n3. Mobilier, vaisselle et nappage : inclus ou à louer ?\n4. Capacité assise maximum en cas de pluie.\n5. Accès des prestataires la veille pour l'installation.\n6. Conditions d'annulation et échéancier de paiement.\n7. Parking et navettes depuis Bordeaux."
   }
  ]
 };
@@ -1513,7 +1442,7 @@ function AuraPlanApp() {
 
   const [isDark, setIsDark] = useState(prefs.isDark !== false);
   const [activeTab, setActiveTab] = useState(['roadmap', 'kanban', 'planning', 'notes'].includes(prefs.tab) ? prefs.tab : 'roadmap');
-  const [columnWidth, setColumnWidth] = useState(clamp(Number(prefs.columnWidth) || 110, 26, 240));
+  const [columnWidth, setColumnWidth] = useState(clamp(Number(prefs.columnWidth) || 110, 5, 240));
 
   const [data, setData] = useState(loadData);
   const dataRef = useRef(data);
@@ -1522,6 +1451,8 @@ function AuraPlanApp() {
   const projects = data.projects;
   const planning = data.planning;
   const notes = data.notes;
+  const columnLabels = data.columnLabels;
+  const statusLabel = useCallback((s) => (columnLabels && columnLabels[s]) || STATUS_META[s].label, [columnLabels]);
 
   const [toasts, setToasts] = useState([]);
   const pushToast = useCallback((message, tone) => {
@@ -1614,6 +1545,8 @@ function AuraPlanApp() {
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [selectedNoteId, setSelectedNoteId] = useState(null);
+  const [editingColumn, setEditingColumn] = useState(null);
+  const [columnDraft, setColumnDraft] = useState('');
 
   const anyModalOpen = !!(editingTask || taskForm || subtaskForm || editingEntry || entryForm || splitEntry || projectForm || isConfigOpen || isHelpOpen);
   const closeAllModals = useCallback(() => {
@@ -1799,6 +1732,13 @@ function AuraPlanApp() {
       if (fresh && projectProgress(fresh) === 100) { triggerConfetti(); pushToast(`« ${fresh.title} » est bouclé à 100 %`, 'success'); }
     }
   }, [commit, projectProgress, pushToast]);
+
+  const saveColumnLabel = (status) => {
+    const label = columnDraft.trim();
+    setEditingColumn(null);
+    if (!label || label === statusLabel(status)) return;
+    commit((prev) => ({ ...prev, columnLabels: { ...prev.columnLabels, [status]: label } }), 'Colonne renommée');
+  };
 
   const handleCardDragStart = (e, taskId) => {
     try { e.dataTransfer.setData('text/plain', taskId); e.dataTransfer.effectAllowed = 'move'; } catch (err) { /* no-op */ }
@@ -2021,7 +1961,7 @@ function AuraPlanApp() {
   const fitAll = useCallback(() => {
     const vp = document.getElementById('timeline-viewport');
     if (!vp) return;
-    setColumnWidth(clamp(Math.floor((vp.clientWidth - nameColRef.current - 24) / Math.max(1, totalDays)), 26, 240));
+    setColumnWidth(clamp(Math.floor((vp.clientWidth - nameColRef.current - 16) / Math.max(1, totalDays)), 5, 240));
     vp.scrollLeft = 0;
   }, [totalDays]);
 
@@ -2228,6 +2168,9 @@ function AuraPlanApp() {
   /* --------------------------------- Rendu --------------------------------- */
   const timelineWidth = totalDays * columnWidth;
 
+  const dense = columnWidth < 34;      // trop étroit pour le jour de la semaine
+  const ultra = columnWidth < 16;      // trop étroit pour le moindre chiffre
+
   const DayHeader = ({ withHalves }) => (
     <div className="flex" style={{ width: `${timelineWidth}px` }}>
       {Array.from({ length: totalDays }).map((_, i) => {
@@ -2237,21 +2180,29 @@ function AuraPlanApp() {
         const count = dayLoad.get(i) || 0;
         return (
           <div key={i} style={{ width: `${columnWidth}px`, minWidth: `${columnWidth}px` }}
-            className={`flex h-full flex-col justify-between border-r ${T.grid} ${d.getDay() === 1 ? 'border-l-2 border-l-indigo-500/40' : ''}
-              ${isToday ? 'bg-indigo-500/15 text-indigo-300' : isWeekend ? (isDark ? 'bg-white/[0.03] text-slate-500' : 'bg-slate-100 text-slate-400') : T.muted}`}>
-            <div className="flex items-center justify-between px-1.5 pt-1">
-              <span className="flex items-baseline gap-1">
-                <span className="text-[9px] font-bold uppercase">{d.toLocaleDateString('fr-FR', { weekday: 'short' }).slice(0, 2)}</span>
-                <span className="text-[11px] font-extrabold">{d.getDate()}</span>
-              </span>
-              {withHalves && count > 0 && columnWidth >= 62 ? <span className="rounded-full bg-indigo-600 px-1.5 text-[8px] font-extrabold text-white">{count}</span> : null}
-            </div>
-            {withHalves ? (
-              <div className={`mt-1 flex border-t ${T.grid} text-[8px] font-bold`}>
-                <div className={`w-1/2 border-r ${T.grid} py-0.5 text-center text-amber-400`}>{columnWidth >= 56 ? '☀ AM' : '☀'}</div>
-                <div className="w-1/2 py-0.5 text-center text-indigo-300">{columnWidth >= 56 ? '☾ PM' : '☾'}</div>
+            className={`flex h-full flex-col justify-between overflow-hidden border-r ${T.grid} ${d.getDay() === 1 ? 'border-l-2 border-l-indigo-500/40' : ''}
+              ${isToday ? 'bg-indigo-500/25 text-indigo-300' : isWeekend ? (isDark ? 'bg-white/[0.03] text-slate-500' : 'bg-slate-100 text-slate-400') : T.muted}`}>
+            {ultra ? (
+              <div className="flex h-full items-end justify-center pb-1">
+                {d.getDate() === 1 ? <span className="h-2 w-0.5 rounded bg-indigo-400" /> : null}
               </div>
-            ) : <div className="h-1" />}
+            ) : (
+              <>
+                <div className={`flex items-center justify-between pt-1 ${dense ? 'px-0 justify-center' : 'px-1.5'}`}>
+                  <span className="flex items-baseline gap-1">
+                    {dense ? null : <span className="text-[9px] font-bold uppercase">{d.toLocaleDateString('fr-FR', { weekday: 'short' }).slice(0, 2)}</span>}
+                    <span className={`${dense ? 'text-[9px]' : 'text-[11px]'} font-extrabold`}>{d.getDate()}</span>
+                  </span>
+                  {withHalves && count > 0 && columnWidth >= 62 ? <span className="rounded-full bg-indigo-600 px-1.5 text-[8px] font-extrabold text-white">{count}</span> : null}
+                </div>
+                {withHalves ? (
+                  <div className={`mt-1 flex border-t ${T.grid} text-[8px] font-bold`}>
+                    <div className={`w-1/2 border-r ${T.grid} py-0.5 text-center text-amber-400`}>{columnWidth >= 56 ? '☀ AM' : dense ? '' : '☀'}</div>
+                    <div className="w-1/2 py-0.5 text-center text-indigo-300">{columnWidth >= 56 ? '☾ PM' : dense ? '' : '☾'}</div>
+                  </div>
+                ) : <div className="h-1" />}
+              </>
+            )}
           </div>
         );
       })}
@@ -2364,7 +2315,7 @@ function AuraPlanApp() {
             {activeTab !== 'kanban' ? (
               <>
                 <span className={`font-semibold ${T.faint}`}>Zoom</span>
-                <input type="range" min="26" max="240" value={columnWidth} onChange={(e) => setColumnWidth(Number(e.target.value))} className="w-28" aria-label="Zoom" />
+                <input type="range" min="5" max="240" value={columnWidth} onChange={(e) => setColumnWidth(Number(e.target.value))} className="w-28" aria-label="Zoom" />
                 <button type="button" onClick={fitAll} className={btnSecondary}>Tout afficher</button>
               </>
             ) : null}
@@ -2388,7 +2339,7 @@ function AuraPlanApp() {
                   <div className="flex">
                     {timelineMonths.map((m, i) => (
                       <div key={i} style={{ width: `${m.days * columnWidth}px` }} className={`flex h-full items-center justify-center border-r text-[10px] font-extrabold uppercase tracking-wider ${T.grid} ${T.faint}`}>
-                        {m.days * columnWidth > 90 ? m.label : m.label.slice(0, 3)}
+                        {m.days * columnWidth > 90 ? m.label : m.days * columnWidth > 26 ? m.label.slice(0, 3) : ''}
                       </div>
                     ))}
                   </div>
@@ -2444,7 +2395,8 @@ function AuraPlanApp() {
                             <div style={{ left: `${geo.left}px`, width: `${Math.max(columnWidth * 0.6, geo.width)}px` }}
                               onMouseDown={(e) => startDrag(e, { kind: 'project', id: proj.id, action: 'move', unit: 1, startUnits, lenUnits: proj.duration })}
                               onClick={() => { if (!movedRef.current) { setSelectedProjectId(proj.id); setIsRightPanelOpen(true); } }}
-                              className={`group absolute top-3 flex h-8 cursor-grab items-center overflow-hidden rounded-lg border border-white/15 bg-slate-950/90 shadow-lg active:cursor-grabbing ${dragging ? 'z-[15] ring-2 ring-indigo-400' : 'z-10'}`}>
+                              className={`group absolute top-3 flex h-8 cursor-grab items-center overflow-hidden rounded-lg border border-white/20 bg-gradient-to-r ${proj.color} shadow-lg active:cursor-grabbing ${dragging ? 'z-[15] ring-2 ring-indigo-400' : 'z-10'}`}>
+                              <div className="absolute inset-0 bg-slate-950/60" />
                               <div className={`absolute inset-y-0 left-0 bg-gradient-to-r ${proj.color}`} style={{ width: `${pct}%` }} />
                               <div onMouseDown={(e) => startDrag(e, { kind: 'project', id: proj.id, action: 'resize-left', unit: 1, startUnits, lenUnits: proj.duration })} className="absolute inset-y-0 left-0 z-20 w-2.5 cursor-ew-resize bg-white/40 opacity-0 group-hover:opacity-100" />
                               <div className="pointer-events-none relative flex w-full items-center justify-between gap-2 px-2.5">
@@ -2516,7 +2468,7 @@ function AuraPlanApp() {
                                             className="h-3 w-3 shrink-0 rounded accent-emerald-500" aria-label={`Valider ${sub.title}`} />
                                           <button type="button" onClick={() => setSubtaskForm({ ...sub, taskId: task.id, projectId: proj.id })}
                                             className={`min-w-0 flex-1 truncate text-left text-[10px] ${sub.status === 'DONE' ? 'text-slate-500 line-through' : T.muted}`}>{sub.title}</button>
-                                          <span className={`shrink-0 rounded border px-1 py-0.5 text-[8px] font-bold ${STATUS_META[sub.status].tint}`}>{STATUS_META[sub.status].label}</span>
+                                          <span className={`shrink-0 rounded border px-1 py-0.5 text-[8px] font-bold ${STATUS_META[sub.status].tint}`}>{statusLabel(sub.status)}</span>
                                         </>
                                       ) : null}
                                     </div>
@@ -2617,12 +2569,23 @@ function AuraPlanApp() {
                     onDragOver={(e) => handleColumnDragOver(e, status, colTasks.length)}
                     onDrop={(e) => handleColumnDrop(e, status, colTasks.length)}
                     className={`flex h-full flex-col overflow-hidden rounded-2xl border transition ${T.panel} ${isOver ? 'border-indigo-500 ring-2 ring-indigo-500/25' : ''}`}>
-                    <div className={`flex items-center justify-between border-b px-3 py-2.5 ${T.border} ${T.inset}`}>
-                      <h3 className="flex items-center gap-2 text-xs font-extrabold">
-                        <span className={`h-2 w-2 rounded-full ${meta.dot}`} />{meta.label}
-                        <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] ${T.raise} ${T.muted}`}>{colTasks.length}</span>
-                      </h3>
-                      <button type="button" title={`Ajouter une tâche dans « ${meta.label} »`}
+                    <div className={`flex items-center justify-between gap-2 border-b px-3 py-2.5 ${T.border} ${T.inset}`}>
+                      {editingColumn === status ? (
+                        <input autoFocus value={columnDraft}
+                          onChange={(e) => setColumnDraft(e.target.value)}
+                          onBlur={() => saveColumnLabel(status)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') saveColumnLabel(status); if (e.key === 'Escape') setEditingColumn(null); }}
+                          className={`min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs font-extrabold outline-none focus:border-indigo-500 ${isDark ? 'bg-[#0A1220] border-[#28344F] text-slate-100' : 'bg-white border-slate-300 text-slate-900'}`} />
+                      ) : (
+                        <h3 className="flex min-w-0 items-center gap-2 text-xs font-extrabold">
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
+                          <button type="button" title="Cliquez pour renommer la colonne"
+                            onClick={() => { setColumnDraft(statusLabel(status)); setEditingColumn(status); }}
+                            className="truncate rounded px-0.5 hover:text-indigo-400">{statusLabel(status)}</button>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] ${T.raise} ${T.muted}`}>{colTasks.length}</span>
+                        </h3>
+                      )}
+                      <button type="button" title={`Ajouter une tâche dans « ${statusLabel(status)} »`}
                         onClick={() => setTaskForm({ id: null, projectId: selectedProjectId || (projects[0] && projects[0].id) || '', title: '', assignee: collaborators[0] || 'Moi', startDate: TODAY_STR, duration: 2, status, priority: 'MEDIUM', notes: '' })}
                         className={`rounded-lg px-2 py-1 text-sm font-bold ${T.raise} ${T.muted} hover:text-indigo-400`}>+</button>
                     </div>
@@ -2681,7 +2644,7 @@ function AuraPlanApp() {
                   {timelineWeeks.map((w, i) => (
                     <div key={i} style={{ width: `${w.days * columnWidth}px` }}
                       className={`flex h-full items-center justify-center border-r border-indigo-500/20 text-[10px] font-extrabold uppercase text-indigo-400 ${i % 2 === 0 ? 'bg-indigo-500/[0.07]' : ''}`}>
-                      {w.days * columnWidth > 110 ? `Semaine ${w.weekNum}` : `S${w.weekNum}`}
+                      {w.days * columnWidth > 110 ? `Semaine ${w.weekNum}` : w.days * columnWidth > 24 ? `S${w.weekNum}` : ''}
                     </div>
                   ))}
                 </div>
@@ -2755,6 +2718,9 @@ function AuraPlanApp() {
                               else width += drag.deltaX;
                             }
                             const top = entry.lane * 30 + 10;
+                            const shownWidth = Math.max(halfPx * 0.8, width);
+                            const tiny = shownWidth < 54;      // le titre ne tient pas dedans
+                            const compact = shownWidth < 96;   // pas la place pour l'icône et le badge
                             return (
                               <React.Fragment key={entry.id}>
                                 {dragging && (!drag.targetPerson || drag.targetPerson === row.person) ? (
@@ -2769,9 +2735,18 @@ function AuraPlanApp() {
                                   className={`group pointer-events-auto absolute flex h-6 cursor-grab items-center rounded-md border border-white/20 bg-gradient-to-r ${entry.color} px-1.5 text-[10px] font-bold text-white shadow-md transition hover:brightness-110 active:cursor-grabbing ${dragging ? 'z-[15] ring-2 ring-indigo-300' : 'z-10'}`}>
                                   <div onMouseDown={(e) => startDrag(e, { kind: 'entry', id: entry.id, action: 'resize-left', unit: 0.5, startUnits: entry.startHalf, lenUnits: entry.lenHalf, person: row.person })} className="absolute inset-y-0 left-0 w-2 cursor-ew-resize rounded-l-md bg-white/40 opacity-0 group-hover:opacity-100" />
                                   <div className="pointer-events-none flex w-full items-center justify-between gap-1 px-1">
-                                    <span className="truncate">{entry.slot === 'PM' ? '☾' : '☀'} {entry.title}</span>
-                                    {entry.lenHalf >= 2 ? <span className="shrink-0 rounded bg-black/35 px-1 font-mono text-[9px]">{entry.duration} j</span> : null}
+                                    {tiny ? (
+                                      <span className="h-1.5 w-1.5 rounded-full bg-white/90 shadow" />
+                                    ) : (
+                                      <span className="truncate">{compact ? '' : (entry.slot === 'PM' ? '☾ ' : '☀ ')}{entry.title}</span>
+                                    )}
+                                    {!compact && entry.lenHalf >= 2 ? <span className="shrink-0 rounded bg-black/35 px-1 font-mono text-[9px]">{entry.duration} j</span> : null}
                                   </div>
+                                  {tiny ? (
+                                    <span className={`pointer-events-none absolute left-full top-1/2 ml-1 -translate-y-1/2 whitespace-nowrap rounded px-1 text-[9px] font-bold ${isDark ? 'bg-[#0E1626]/85 text-slate-100' : 'bg-white/90 text-slate-800'}`}>
+                                      {entry.title}
+                                    </span>
+                                  ) : null}
                                   <div onMouseDown={(e) => startDrag(e, { kind: 'entry', id: entry.id, action: 'resize-right', unit: 0.5, startUnits: entry.startHalf, lenUnits: entry.lenHalf, person: row.person })} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize rounded-r-md bg-white/40 opacity-0 group-hover:opacity-100" />
                                   {dragging ? (
                                     <div className="pointer-events-none absolute -top-7 left-0 whitespace-nowrap rounded-md border border-indigo-500 bg-slate-900 px-2 py-1 font-mono text-[10px] text-slate-100 shadow-xl">
@@ -3061,7 +3036,7 @@ function AuraPlanApp() {
                 <Field T={T} label="Durée (j)"><input type="number" step="0.5" min="0.5" className={inputCls} value={form.duration} onChange={(e) => setForm({ ...form, duration: Number(e.target.value) })} /></Field>
                 <Field T={T} label="Colonne Kanban">
                   <select className={inputCls} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                    {STATUSES.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+                    {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
                   </select>
                 </Field>
               </div>
@@ -3080,7 +3055,7 @@ function AuraPlanApp() {
                         <input type="checkbox" checked={s.status === 'DONE'} onChange={(e) => setSubtaskStatus(s.id, e.target.checked ? 'DONE' : 'TODO')} className="h-3.5 w-3.5 accent-emerald-500" />
                         <button type="button" className={`min-w-0 flex-1 truncate text-left text-[11px] ${s.status === 'DONE' ? 'line-through opacity-60' : ''}`}
                           onClick={() => setSubtaskForm({ ...s, taskId: liveTask.id, projectId: parent.id })}>{s.title}</button>
-                        <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold ${STATUS_META[s.status].tint}`}>{STATUS_META[s.status].label}</span>
+                        <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold ${STATUS_META[s.status].tint}`}>{statusLabel(s.status)}</span>
                       </div>
                     ))}
                   </div>
@@ -3110,7 +3085,7 @@ function AuraPlanApp() {
               <Field T={T} label="Assigné à"><input className={inputCls} list="collab-list" value={subtaskForm.assignee} onChange={(e) => setSubtaskForm({ ...subtaskForm, assignee: e.target.value })} /></Field>
               <Field T={T} label="Statut">
                 <select className={inputCls} value={subtaskForm.status} onChange={(e) => setSubtaskForm({ ...subtaskForm, status: e.target.value })}>
-                  {STATUSES.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+                  {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
                 </select>
               </Field>
             </div>
