@@ -34,6 +34,22 @@
 <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js" crossorigin></script>
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
+<!-- Collaboration temps réel : Yjs + y-webrtc, chargés en modules ES (une seule instance de Yjs) -->
+<script type="module">
+  (async () => {
+    try {
+      const Y = await import('https://esm.sh/yjs@13.6.20');
+      const { WebrtcProvider } = await import('https://esm.sh/y-webrtc@10.3.0?deps=yjs@13.6.20');
+      window.YCollab = { Y, WebrtcProvider };
+    } catch (err) {
+      window.YCollabError = String((err && err.message) || err);
+      console.warn('Collaboration temps réel indisponible :', err);
+    } finally {
+      window.dispatchEvent(new Event('ycollab-ready'));
+    }
+  })();
+</script>
+
 <style>
   html, body { height: 100%; }
   body {
@@ -1163,6 +1179,47 @@ const loadData = () => {
   return clean;
 };
 
+/* ----------------------- Collaboration temps réel ----------------------- */
+const COLLAB_KEY = 'auraplan_collab_v21';
+const DEFAULT_SIGNALING = ['wss://signaling.yjs.dev', 'wss://y-webrtc-eu.fly.dev'];
+
+// Chaque entité est une entrée distincte du document partagé : deux personnes
+// qui modifient deux fiches différentes ne s'écrasent jamais.
+const COLLECTIONS = ['projects', 'planning', 'notes'];
+
+const randomRoom = () => 'auraplan-' + Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6);
+
+const readRoomFromUrl = () => {
+  try {
+    const h = new URLSearchParams(String(window.location.hash || '').replace(/^#/, ''));
+    const room = h.get('room');
+    if (!room) return null;
+    return { room: room.slice(0, 80), key: (h.get('key') || '').slice(0, 80) };
+  } catch (e) { return null; }
+};
+
+const dataToShared = (data) => {
+  const out = { meta: { columnLabels: data.columnLabels, event: data.event } };
+  COLLECTIONS.forEach((c) => {
+    const map = {};
+    (data[c] || []).forEach((item, index) => { map[item.id] = { ...item, __order: index }; });
+    out[c] = map;
+  });
+  return out;
+};
+
+const sharedToData = (doc) => {
+  const meta = doc.getMap('meta').get('value') || {};
+  const out = { columnLabels: meta.columnLabels, event: meta.event };
+  COLLECTIONS.forEach((c) => {
+    const list = [];
+    doc.getMap(c).forEach((value) => { if (value) list.push(value); });
+    list.sort((a, b) => (a.__order || 0) - (b.__order || 0));
+    out[c] = list.map((item) => { const copy = { ...item }; delete copy.__order; return copy; });
+  });
+  return normalizeData(out);
+};
+
 /* ------------------------------ Composants ------------------------------ */
 function Avatar({ name, size }) {
   const s = size === 'sm' ? 'w-6 h-6 text-[9px]' : size === 'lg' ? 'w-10 h-10 text-xs' : 'w-8 h-8 text-[10px]';
@@ -1450,6 +1507,7 @@ function AuraPlanApp() {
   }, [timelineStart, totalDays]);
 
   const todayOffset = diffDays(parseDate(TODAY_STR), timelineStart);
+  const eventOffset = diffDays(parseDate(event.date), timelineStart);
 
   /* ------------------------------ Planning ------------------------------ */
   const filteredPlanning = useMemo(() => {
@@ -1763,6 +1821,59 @@ function AuraPlanApp() {
   const nameColRef = useRef(nameColWidth);
   useEffect(() => { nameColRef.current = nameColWidth; }, [nameColWidth]);
 
+  /* ------------------- Défilement au clic maintenu (pan) ------------------- */
+  const panRef = useRef(null);
+  const [panning, setPanning] = useState(false);
+  const [viewport, setViewport] = useState({ left: 0, width: 0 });
+
+  const syncViewport = useCallback(() => {
+    const vp = document.getElementById('timeline-viewport');
+    if (vp) setViewport({ left: vp.scrollLeft, width: vp.clientWidth });
+  }, []);
+
+  const startPan = (e) => {
+    const vp = e.currentTarget;
+    const middle = e.button === 1;
+    if (!middle) {
+      if (e.button !== 0) return;
+      if (e.target && e.target.closest && e.target.closest('button, input, select, textarea, a, [data-nopan]')) return;
+    }
+    e.preventDefault();
+    panRef.current = { el: vp, x: e.clientX, y: e.clientY, left: vp.scrollLeft, top: vp.scrollTop, moved: false };
+    setPanning(true);
+  };
+
+  useEffect(() => {
+    if (!panning) return;
+    const onMove = (event) => {
+      const p = panRef.current;
+      if (!p) return;
+      const dx = event.clientX - p.x;
+      const dy = event.clientY - p.y;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) p.moved = true;
+      p.el.scrollLeft = p.left - dx;
+      p.el.scrollTop = p.top - dy;
+      syncViewport();
+    };
+    const onUp = () => { panRef.current = null; setPanning(false); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [panning, syncViewport]);
+
+  useEffect(() => {
+    const id = window.setTimeout(syncViewport, 90);
+    return () => window.clearTimeout(id);
+  }, [activeTab, columnWidth, totalDays, syncViewport]);
+
+  const scrollTimelineBy = useCallback((days) => {
+    const vp = document.getElementById('timeline-viewport');
+    if (!vp) return;
+    vp.scrollBy({ left: days * columnWidth, behavior: 'smooth' });
+    window.setTimeout(syncViewport, 320);
+  }, [columnWidth, syncViewport]);
+
+
   const fitAll = useCallback(() => {
     const vp = document.getElementById('timeline-viewport');
     if (!vp) return;
@@ -1778,6 +1889,14 @@ function AuraPlanApp() {
     const offset = diffDays(getMonday(new Date()), timelineStart);
     window.requestAnimationFrame(() => { vp.scrollLeft = Math.max(0, offset * width); });
   }, [timelineStart]);
+
+  const scrollToEvent = useCallback(() => {
+    const vp = document.getElementById('timeline-viewport');
+    if (!vp) return;
+    const offset = diffDays(parseDate(event.date), timelineStart);
+    vp.scrollTo({ left: Math.max(0, offset * columnWidth - (vp.clientWidth - nameColRef.current) / 2), behavior: 'smooth' });
+    window.setTimeout(syncViewport, 360);
+  }, [event.date, timelineStart, columnWidth, syncViewport]);
 
   const scrollToToday = useCallback(() => {
     const vp = document.getElementById('timeline-viewport');
@@ -1905,10 +2024,179 @@ function AuraPlanApp() {
       if (e.key === '4') setActiveTab('notes');
       if (e.key.toLowerCase() === 't') scrollToToday();
       if (e.key.toLowerCase() === 'f') fitAll();
+      if (e.key === 'ArrowLeft') { e.preventDefault(); scrollTimelineBy(-7); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); scrollTimelineBy(7); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, closeAllModals, anyModalOpen, scrollToToday, fitAll]);
+  }, [undo, closeAllModals, anyModalOpen, scrollToToday, fitAll, scrollTimelineBy]);
+
+  /* --------------------- Collaboration temps réel (P2P) --------------------- */
+  const [collab, setCollab] = useState(() => {
+    const fromUrl = readRoomFromUrl();
+    const stored = loadJson(COLLAB_KEY, {});
+    return {
+      enabled: fromUrl ? true : !!stored.enabled,
+      room: (fromUrl && fromUrl.room) || stored.room || randomRoom(),
+      key: (fromUrl && fromUrl.key) || stored.key || '',
+      name: stored.name || 'Moi',
+      signaling: Array.isArray(stored.signaling) && stored.signaling.length ? stored.signaling : DEFAULT_SIGNALING
+    };
+  });
+  const [collabState, setCollabState] = useState({ status: 'off', peers: 0, names: [], error: '' });
+  const [libReady, setLibReady] = useState(() => !!(window.YCollab || window.YCollabError));
+
+  const docRef = useRef(null);
+  const applyingRemote = useRef(false);
+  const lastPushed = useRef('');
+
+  useEffect(() => { saveJson(COLLAB_KEY, collab); }, [collab]);
+
+  useEffect(() => {
+    if (libReady) return;
+    const onReady = () => setLibReady(true);
+    window.addEventListener('ycollab-ready', onReady);
+    return () => window.removeEventListener('ycollab-ready', onReady);
+  }, [libReady]);
+
+  useEffect(() => {
+    if (!collab.enabled) { setCollabState({ status: 'off', peers: 0, names: [], error: '' }); return undefined; }
+    if (!libReady) { setCollabState((p) => ({ ...p, status: 'loading' })); return undefined; }
+    if (!window.YCollab) {
+      setCollabState({ status: 'error', peers: 0, names: [], error: window.YCollabError || 'Bibliothèque indisponible' });
+      return undefined;
+    }
+
+    const { Y, WebrtcProvider } = window.YCollab;
+    let provider = null;
+    let doc = null;
+
+    try {
+      doc = new Y.Doc();
+      provider = new WebrtcProvider(collab.room, doc, {
+        signaling: collab.signaling,
+        password: collab.key || null,
+        maxConns: 24
+      });
+    } catch (err) {
+      setCollabState({ status: 'error', peers: 0, names: [], error: String(err.message || err) });
+      return undefined;
+    }
+
+    docRef.current = { doc, provider, Y };
+    window.__auraplanDoc = doc;   // utile pour le débogage et les tests
+    setCollabState({ status: 'connecting', peers: 0, names: [], error: '' });
+
+    const pushAll = () => {
+      const snapshot = dataToShared(dataRef.current);
+      doc.transact(() => {
+        doc.getMap('meta').set('value', snapshot.meta);
+        COLLECTIONS.forEach((c) => {
+          const ymap = doc.getMap(c);
+          Object.keys(snapshot[c]).forEach((id) => ymap.set(id, snapshot[c][id]));
+        });
+      }, 'local');
+      lastPushed.current = JSON.stringify(snapshot);
+    };
+
+    const pullAll = () => {
+      applyingRemote.current = true;
+      const next = sharedToData(doc);
+      dataRef.current = next;
+      setData(next);
+      lastPushed.current = JSON.stringify(dataToShared(next));
+      window.setTimeout(() => { applyingRemote.current = false; }, 0);
+    };
+
+    const remoteHasContent = () => COLLECTIONS.some((c) => doc.getMap(c).size > 0);
+
+    // Premier contact : on adopte l'état du groupe s'il existe, sinon on publie le nôtre.
+    let joined = false;
+    const settle = () => {
+      if (joined) return;
+      joined = true;
+      if (remoteHasContent()) { pullAll(); pushToast('Tableau du groupe récupéré', 'success'); }
+      else pushAll();
+    };
+    const settleTimer = window.setTimeout(settle, 1500);
+
+    const onUpdate = (update, origin) => {
+      if (origin === 'local') return;
+      if (!joined) { joined = true; window.clearTimeout(settleTimer); }
+      pullAll();
+    };
+    doc.on('update', onUpdate);
+
+    const refreshPeers = () => {
+      let names = [];
+      try {
+        const states = Array.from(provider.awareness.getStates().values());
+        names = states.map((st) => (st && st.user && st.user.name) || 'Invité');
+      } catch (e) { names = []; }
+      setCollabState({
+        status: provider.connected ? 'connected' : 'connecting',
+        peers: Math.max(0, names.length - 1),
+        names, error: ''
+      });
+    };
+
+    try {
+      provider.awareness.setLocalStateField('user', { name: collab.name, color: avatarColor(collab.name) });
+      provider.awareness.on('change', refreshPeers);
+      provider.on('status', refreshPeers);
+      provider.on('peers', refreshPeers);
+    } catch (e) { /* no-op */ }
+    refreshPeers();
+
+    return () => {
+      window.clearTimeout(settleTimer);
+      try { doc.off('update', onUpdate); } catch (e) { /* no-op */ }
+      try { provider.awareness.off('change', refreshPeers); } catch (e) { /* no-op */ }
+      try { provider.destroy(); } catch (e) { /* no-op */ }
+      try { doc.destroy(); } catch (e) { /* no-op */ }
+      docRef.current = null;
+      window.__auraplanDoc = null;
+    };
+  }, [collab.enabled, collab.room, collab.key, collab.name, collab.signaling, libReady, pushToast]);
+
+  // Publication différentielle : seules les fiches réellement modifiées partent sur le réseau.
+  useEffect(() => {
+    const ctx = docRef.current;
+    if (!ctx || applyingRemote.current) return;
+    const snapshot = dataToShared(data);
+    const serialized = JSON.stringify(snapshot);
+    if (serialized === lastPushed.current) return;
+    const previous = lastPushed.current ? JSON.parse(lastPushed.current) : { meta: null, projects: {}, planning: {}, notes: {} };
+    ctx.doc.transact(() => {
+      if (JSON.stringify(previous.meta) !== JSON.stringify(snapshot.meta)) ctx.doc.getMap('meta').set('value', snapshot.meta);
+      COLLECTIONS.forEach((c) => {
+        const ymap = ctx.doc.getMap(c);
+        const before = previous[c] || {};
+        Object.keys(snapshot[c]).forEach((id) => {
+          if (JSON.stringify(before[id]) !== JSON.stringify(snapshot[c][id])) ymap.set(id, snapshot[c][id]);
+        });
+        Object.keys(before).forEach((id) => { if (!snapshot[c][id]) ymap.delete(id); });
+      });
+    }, 'local');
+    lastPushed.current = serialized;
+  }, [data]);
+
+  const shareUrl = useMemo(() => {
+    try {
+      const base = window.location.origin + window.location.pathname;
+      const params = new URLSearchParams({ room: collab.room });
+      if (collab.key) params.set('key', collab.key);
+      return `${base}#${params.toString()}`;
+    } catch (e) { return ''; }
+  }, [collab.room, collab.key]);
+
+  const copyShareUrl = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(shareUrl);
+      else throw new Error('presse-papiers indisponible');
+      pushToast('Lien d’invitation copié', 'success');
+    } catch (e) { pushToast('Copiez le lien affiché ci-dessous', 'info'); }
+  };
 
   /* --------------------------- Import / export --------------------------- */
   const fileInputRef = useRef(null);
@@ -2093,7 +2381,17 @@ function AuraPlanApp() {
           ) : null}
           <button type="button" onClick={() => setIsDark(!isDark)} className={btnQuiet} title="Changer de thème">{isDark ? '☀' : '☾'}</button>
           <button type="button" onClick={() => setIsHelpOpen(true)} className={btnQuiet} title="Aide">?</button>
-          <button type="button" onClick={() => setIsConfigOpen(true)} className={btnSecondary}>Synchroniser</button>
+          <button type="button" onClick={() => setIsConfigOpen(true)} className={btnSecondary}
+            title={collabState.status === 'connected' ? `${collabState.names.join(', ')} — salon ${collab.room}`
+              : collabState.status === 'error' ? `Collaboration indisponible : ${collabState.error}`
+                : collab.enabled ? 'Connexion au salon en cours…' : 'Travailler à plusieurs en temps réel'}>
+            <span className="flex items-center gap-1.5">
+              <span className={`h-2 w-2 rounded-full ${collabState.status === 'connected' ? 'bg-emerald-400 animate-pulse'
+                : collabState.status === 'connecting' || collabState.status === 'loading' ? 'bg-amber-400 animate-pulse'
+                  : collabState.status === 'error' ? 'bg-rose-500' : 'bg-slate-500'}`} />
+              {collab.enabled ? (collabState.peers > 0 ? `${collabState.peers + 1} en ligne` : 'Partagé') : 'Partager'}
+            </span>
+          </button>
           <button type="button" className={btnPrimary}
             onClick={() => {
               if (activeTab === 'planning') openEntryCreator(collaborators[0] || 'Moi', Math.max(0, todayOffset), 'AM');
@@ -2114,7 +2412,9 @@ function AuraPlanApp() {
               <>
                 <button type="button" onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)} className={btnSecondary}>{isLeftPanelOpen ? 'Réduire la colonne' : 'Afficher la colonne'}</button>
                 <button type="button" onClick={() => setIsRightPanelOpen(!isRightPanelOpen)} className={btnSecondary}>{isRightPanelOpen ? 'Masquer le détail' : 'Afficher le détail'}</button>
-                <span className={`ml-1 hidden text-[11px] xl:inline ${T.faint}`}>Chaque projet et chaque tâche se plie indépendamment avec ▸</span>
+                <button type="button" onClick={scrollToEvent} className={btnSecondary} title={`Aller au ${event.label}`}>💍 Jour J</button>
+                <button type="button" onClick={scrollToToday} className={btnSecondary}>Aujourd'hui</button>
+                <span className={`ml-1 hidden text-[11px] 2xl:inline ${T.faint}`}>Clic maintenu sur la grille pour faire défiler · ← → pour avancer d'une semaine</span>
               </>
             ) : null}
             {activeTab === 'planning' ? (
@@ -2152,10 +2452,30 @@ function AuraPlanApp() {
       {/* ------------------------------ Contenu ------------------------------ */}
       <main className="relative flex flex-1 overflow-hidden">
 
+        {/* Rappel discret du Jour J lorsqu'il est hors de l'écran */}
+        {activeTab === 'roadmap' && viewport.width > 0 && eventOffset >= 0 ? (() => {
+          const eventX = nameColWidth + eventOffset * columnWidth;
+          const gauche = eventX < viewport.left + nameColWidth;
+          const droite = eventX > viewport.left + viewport.width - 12;
+          if (!gauche && !droite) return null;
+          return (
+            <button type="button" onClick={scrollToEvent}
+              title={`${event.label} — ${formatDateFr(event.date)} · cliquez pour y aller`}
+              className={`group absolute top-1/2 z-[45] flex -translate-y-1/2 items-center gap-1 rounded-full border border-rose-400/40 bg-rose-500/15 px-2 py-1.5 text-[10px] font-bold text-rose-300 opacity-60 backdrop-blur transition hover:opacity-100
+                ${droite ? 'right-2' : 'left-2'} ${isRightPanelOpen && droite ? 'lg:right-[21rem]' : ''}`}>
+              {gauche ? <span>‹</span> : null}
+              <span className="jour-j-pin">💍</span>
+              <span className="hidden font-mono group-hover:inline">{daysToEvent > 0 ? `J-${daysToEvent}` : formatDateFr(event.date)}</span>
+              {droite ? <span>›</span> : null}
+            </button>
+          );
+        })() : null}
+
         {/* ============================= ROADMAP ============================= */}
         {activeTab === 'roadmap' ? (
           <>
-            <div id="timeline-viewport" className={`flex-1 overflow-auto ${isDark ? 'bg-[#05080F]' : 'bg-[#EEF1F6]'}`}>
+            <div id="timeline-viewport" onMouseDown={startPan} onScroll={syncViewport}
+              className={`flex-1 overflow-auto ${panning ? 'cursor-grabbing select-none' : 'cursor-grab'} ${isDark ? 'bg-[#05080F]' : 'bg-[#EEF1F6]'}`}>
               <div style={{ width: `${timelineWidth + nameColWidth}px`, minWidth: '100%' }}>
 
                 <div className={`sticky top-0 z-30 flex h-7 border-b ${T.rail} ${T.border}`}>
@@ -2180,6 +2500,16 @@ function AuraPlanApp() {
                 </div>
 
                 <div className="relative">
+                  {/* Repère du Jour J, traversant toutes les lignes */}
+                  {eventOffset >= 0 && eventOffset < totalDays ? (
+                    <div className="pointer-events-none absolute inset-y-0 z-[8]"
+                      style={{ left: `${nameColWidth + eventOffset * columnWidth}px`, width: `${Math.max(3, columnWidth)}px` }}>
+                      <div className="jour-j-pin absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-rose-400" />
+                      <div className="absolute -top-0.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-b-lg border border-t-0 border-rose-400/70 bg-rose-500/95 px-2 py-0.5 text-[10px] font-extrabold text-white shadow-lg">
+                        💍 {event.label} · {formatDateFr(event.date)}
+                      </div>
+                    </div>
+                  ) : null}
                   {projects.length === 0 ? <div className={`px-8 py-16 text-center text-sm ${T.faint}`}>Aucun projet. Créez-en un pour démarrer votre roadmap.</div> : null}
 
                   {projects.map((proj) => {
@@ -2195,13 +2525,16 @@ function AuraPlanApp() {
                         {/* Niveau 1 — projet */}
                         <div className={`flex h-14 border-b ${T.border} ${isSelected ? 'bg-indigo-500/[0.07]' : ''}`}>
                           <div style={{ width: `${nameColWidth}px` }}
-                            className={`sticky left-0 z-20 flex items-center gap-2 border-r px-3 ${T.panel} ${isSelected ? 'shadow-[inset_3px_0_0_0_#6366F1]' : ''}`}>
+                            data-nopan className={`sticky left-0 z-20 flex items-center gap-2 border-r px-3 ${T.panel} ${isSelected ? 'shadow-[inset_3px_0_0_0_#6366F1]' : ''}`}>
                             {isLeftPanelOpen ? (
                               <>
                                 <button type="button" onClick={() => setOpenProjects({ ...openProjects, [proj.id]: !isOpen })}
-                                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] ${T.raise} ${T.muted} hover:text-indigo-400`}
-                                  aria-label={isOpen ? 'Replier le projet' : 'Déplier le projet'} title={isOpen ? 'Replier ce projet' : 'Déplier ce projet'}>
-                                  {isOpen ? '▾' : '▸'}
+                                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[12px] font-black leading-none transition
+                                    ${isOpen ? 'border-indigo-400/70 bg-indigo-600 text-white shadow-md shadow-indigo-950/40'
+                                             : `${T.border} ${isDark ? 'bg-white/10' : 'bg-slate-200'} text-indigo-400 hover:border-indigo-400 hover:bg-indigo-500/20`}`}
+                                  aria-label={isOpen ? 'Replier le projet' : 'Déplier le projet'}
+                                  title={isOpen ? 'Replier ce projet' : `Déplier ce projet (${proj.tasks.length} tâches)`}>
+                                  {isOpen ? '−' : '+'}
                                 </button>
                                 <button type="button" onClick={() => setSelectedProjectId(proj.id)} className="min-w-0 flex-1 text-left">
                                   <div className="flex items-center gap-2">
@@ -2219,6 +2552,7 @@ function AuraPlanApp() {
                             <GridBackground rowKey={proj.id} />
                             {dragging ? <div style={{ left: `${drag.snapStart * columnWidth}px`, width: `${drag.snapLen * columnWidth}px` }} className="absolute top-3 h-8 rounded-lg border-2 border-dashed border-indigo-400 bg-indigo-500/10" /> : null}
                             <div style={{ left: `${geo.left}px`, width: `${Math.max(columnWidth * 0.6, geo.width)}px` }}
+                                  data-nopan
                               onMouseDown={(e) => startDrag(e, { kind: 'project', id: proj.id, action: 'move', unit: 1, startUnits, lenUnits: proj.duration })}
                               onClick={() => { if (!movedRef.current) { setSelectedProjectId(proj.id); setIsRightPanelOpen(true); } }}
                               className={`group absolute top-3 flex h-8 cursor-grab items-center overflow-hidden rounded-lg border bg-gradient-to-r ${proj.color} shadow-lg active:cursor-grabbing ${isEventBar(proj.startDate, proj.duration) ? 'jour-j-bar border-rose-300/80' : 'border-white/20'} ${dragging ? 'z-[15] ring-2 ring-indigo-400' : 'z-10'}`}>
@@ -2249,12 +2583,20 @@ function AuraPlanApp() {
                           return (
                             <React.Fragment key={task.id}>
                               <div className={`flex h-10 border-b ${T.border} ${isDark ? 'bg-white/[0.015]' : 'bg-slate-50/60'}`}>
-                                <div style={{ width: `${nameColWidth}px` }} className={`sticky left-0 z-20 flex items-center gap-2 border-r pl-6 pr-3 ${T.panel}`}>
+                                <div style={{ width: `${nameColWidth}px` }} data-nopan className={`sticky left-0 z-20 flex items-center gap-2 border-r pl-6 pr-3 ${T.panel} shadow-[inset_14px_0_0_-12px_rgba(99,102,241,.7)]`}>
                                   {isLeftPanelOpen ? (
                                     <>
-                                      <button type="button" onClick={() => setOpenTasks({ ...openTasks, [task.id]: !tOpen })}
-                                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] ${task.subtasks.length ? `${T.raise} ${T.muted} hover:text-indigo-400` : 'opacity-0'}`}
-                                        aria-label="Déplier la tâche">{tOpen ? '▾' : '▸'}</button>
+                                      <button type="button" disabled={!task.subtasks.length}
+                                        onClick={() => setOpenTasks({ ...openTasks, [task.id]: !tOpen })}
+                                        className={`flex h-6 shrink-0 items-center justify-center gap-0.5 rounded-md border px-1 text-[10px] font-black leading-none transition
+                                          ${!task.subtasks.length ? 'invisible'
+                                            : tOpen ? 'border-cyan-400/70 bg-cyan-600 text-white'
+                                                    : `${T.border} ${isDark ? 'bg-white/10' : 'bg-slate-200'} text-cyan-400 hover:border-cyan-400 hover:bg-cyan-500/20`}`}
+                                        aria-label={tOpen ? 'Replier la tâche' : 'Déplier la tâche'}
+                                        title={tOpen ? 'Replier les sous-tâches' : `Déplier ${task.subtasks.length} sous-tâches`}>
+                                        <span>{tOpen ? '−' : '+'}</span>
+                                        <span className="font-mono opacity-80">{task.subtasks.length}</span>
+                                      </button>
                                       <input type="checkbox" checked={task.status === 'DONE'} onChange={(e) => setTaskStatus(task.id, e.target.checked ? 'DONE' : 'IN_PROGRESS')}
                                         className="h-3.5 w-3.5 shrink-0 rounded accent-emerald-500" aria-label={`Valider ${task.title}`} />
                                       <button type="button" onClick={() => setEditingTask({ ...task, projectId: proj.id })}
@@ -2270,6 +2612,7 @@ function AuraPlanApp() {
                                   <GridBackground rowKey={task.id} />
                                   {tDragging ? <div style={{ left: `${drag.snapStart * columnWidth}px`, width: `${drag.snapLen * columnWidth}px` }} className="absolute top-2 h-6 rounded border-2 border-dashed border-indigo-400 bg-indigo-500/10" /> : null}
                                   <div style={{ left: `${tGeo.left}px`, width: `${Math.max(columnWidth * 0.5, tGeo.width)}px` }}
+                                  data-nopan
                                     onMouseDown={(e) => startDrag(e, { kind: 'task', id: task.id, action: 'move', unit: 1, startUnits: tStart, lenUnits: task.duration })}
                                     onClick={() => { if (!movedRef.current) setEditingTask({ ...task, projectId: proj.id }); }}
                                     className={`group absolute top-2 flex h-6 cursor-grab items-center rounded border bg-gradient-to-r ${proj.color} px-2 text-[10px] font-bold text-white shadow active:cursor-grabbing ${isEventBar(task.startDate, task.duration) ? 'jour-j-bar border-rose-300/80' : 'border-white/20'} ${task.status === 'DONE' ? 'opacity-50' : ''} ${tDragging ? 'z-[15]' : ''}`}>
@@ -2287,7 +2630,7 @@ function AuraPlanApp() {
                                 const sGeo = barGeometry(sStart, sub.duration, sDragging);
                                 return (
                                   <div key={sub.id} className={`flex h-8 border-b ${T.border} ${isDark ? 'bg-black/20' : 'bg-slate-100/60'}`}>
-                                    <div style={{ width: `${nameColWidth}px` }} className={`sticky left-0 z-20 flex items-center gap-2 border-r pl-12 pr-3 ${T.panel}`}>
+                                    <div style={{ width: `${nameColWidth}px` }} data-nopan className={`sticky left-0 z-20 flex items-center gap-2 border-r pl-12 pr-3 ${T.panel} shadow-[inset_28px_0_0_-26px_rgba(34,211,238,.7)]`}>
                                       {isLeftPanelOpen ? (
                                         <>
                                           <input type="checkbox" checked={sub.status === 'DONE'} onChange={(e) => setSubtaskStatus(sub.id, e.target.checked ? 'DONE' : 'TODO')}
@@ -2302,6 +2645,7 @@ function AuraPlanApp() {
                                       <GridBackground rowKey={sub.id} />
                                       {sDragging ? <div style={{ left: `${drag.snapStart * columnWidth}px`, width: `${drag.snapLen * columnWidth}px` }} className="absolute top-2 h-4 rounded border-2 border-dashed border-indigo-400 bg-indigo-500/10" /> : null}
                                       <div style={{ left: `${sGeo.left}px`, width: `${Math.max(columnWidth * 0.4, sGeo.width)}px` }}
+                                  data-nopan
                                         onMouseDown={(e) => startDrag(e, { kind: 'subtask', id: sub.id, action: 'move', unit: 1, startUnits: sStart, lenUnits: sub.duration })}
                                         onClick={() => { if (!movedRef.current) setSubtaskForm({ ...sub, taskId: task.id, projectId: proj.id }); }}
                                         className={`group absolute top-2 flex h-4 cursor-grab items-center rounded border px-1.5 text-[9px] font-bold active:cursor-grabbing
@@ -2461,7 +2805,8 @@ function AuraPlanApp() {
 
         {/* ============================== PLANNING ============================== */}
         {activeTab === 'planning' ? (
-          <div id="timeline-viewport" className={`flex-1 overflow-auto ${isDark ? 'bg-[#05080F]' : 'bg-[#EEF1F6]'}`}>
+          <div id="timeline-viewport" onMouseDown={startPan} onScroll={syncViewport}
+            className={`flex-1 overflow-auto ${panning ? 'cursor-grabbing select-none' : ''} ${isDark ? 'bg-[#05080F]' : 'bg-[#EEF1F6]'}`}>
             <div style={{ width: `${timelineWidth + 240}px`, minWidth: '100%' }}>
 
               <div className={`sticky top-0 z-30 flex h-7 border-b ${T.rail} ${T.border}`}>
@@ -2555,6 +2900,7 @@ function AuraPlanApp() {
                                 ) : null}
                                 <div
                                   style={{ left: `${left}px`, width: `${Math.max(halfPx * 0.8, width)}px`, top: `${top}px` }}
+                                  data-nopan
                                   onMouseDown={(e) => startDrag(e, { kind: 'entry', id: entry.id, action: 'move', unit: 0.5, startUnits: entry.startHalf, lenUnits: entry.lenHalf, person: row.person })}
                                   onClick={(e) => { if (movedRef.current) { e.preventDefault(); return; } setEditingEntry(entry); }}
                                   title={`${entry.title} — ${formatDateFr(entry.startDate)} ${entry.slot} · ${entry.duration} j`}
@@ -2951,6 +3297,62 @@ function AuraPlanApp() {
               <input ref={fileInputRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => { importJson(e.target.files && e.target.files[0]); e.target.value = ''; }} />
             </div>
             <div className={`space-y-3 rounded-xl border p-3 ${T.raise}`}>
+              <div className="flex items-center justify-between">
+                <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Travail à plusieurs, en direct</h4>
+                <button type="button" onClick={() => setCollab({ ...collab, enabled: !collab.enabled })}
+                  className={collab.enabled ? btnPrimary : btnSecondary}>{collab.enabled ? 'Activé' : 'Activer'}</button>
+              </div>
+              <p className={`text-[11px] leading-relaxed ${T.faint}`}>
+                Connexion directe entre navigateurs (WebRTC + Yjs) : les frappes au clavier et les déplacements de cartes
+                apparaissent chez les autres instantanément. Aucun serveur à gérer, aucune donnée stockée ailleurs que
+                sur vos machines — seul un annuaire de mise en relation est contacté.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field T={T} label="Votre nom" hint="Affiché aux autres participants.">
+                  <input className={inputCls} value={collab.name} onChange={(e) => setCollab({ ...collab, name: e.target.value.slice(0, 40) })} />
+                </Field>
+                <Field T={T} label="Salon">
+                  <div className="flex gap-1.5">
+                    <input className={inputCls} value={collab.room} onChange={(e) => setCollab({ ...collab, room: e.target.value.trim().slice(0, 80) })} />
+                    <button type="button" className={btnSecondary} title="Générer un nouveau salon"
+                      onClick={() => setCollab({ ...collab, room: randomRoom() })}>↻</button>
+                  </div>
+                </Field>
+              </div>
+
+              <Field T={T} label="Phrase secrète (facultative)" hint="Chiffre les échanges : seuls ceux qui l'ont peuvent lire le tableau.">
+                <input className={inputCls} value={collab.key} onChange={(e) => setCollab({ ...collab, key: e.target.value.slice(0, 80) })} placeholder="ex. maucaillou2027" />
+              </Field>
+
+              <div className={`rounded-xl border p-2.5 ${T.border} ${T.inset}`}>
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className={`text-[10px] font-bold uppercase tracking-wide ${T.faint}`}>Lien d'invitation</span>
+                  <button type="button" className="text-[11px] font-bold text-indigo-400" onClick={copyShareUrl}>Copier</button>
+                </div>
+                <code className="block break-all font-mono text-[10px] text-indigo-300">{shareUrl}</code>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className={
+                  collabState.status === 'connected' ? 'font-bold text-emerald-400'
+                    : collabState.status === 'error' ? 'font-bold text-rose-400'
+                      : collabState.status === 'off' ? T.faint : 'font-bold text-amber-400'}>
+                  {collabState.status === 'connected' ? `Connecté — ${collabState.peers + 1} participant(s)`
+                    : collabState.status === 'connecting' ? 'Connexion au salon…'
+                      : collabState.status === 'loading' ? 'Chargement de la bibliothèque…'
+                        : collabState.status === 'error' ? `Indisponible : ${collabState.error}`
+                          : 'Désactivé — vous travaillez seul, en local'}
+                </span>
+                {collabState.names.length ? (
+                  <span className="flex -space-x-1.5">
+                    {collabState.names.slice(0, 6).map((n, i) => <Avatar key={n + i} name={n} size="sm" />)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className={`space-y-3 rounded-xl border p-3 ${T.raise}`}>
               <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Jour J</h4>
               <div className="grid grid-cols-2 gap-3">
                 <Field T={T} label="Date" hint="Repère animé sur la roadmap.">
@@ -2987,10 +3389,12 @@ function AuraPlanApp() {
         <Modal T={T} title="Prise en main" onClose={() => setIsHelpOpen(false)}
           footer={<><span className={`text-[11px] ${T.faint}`}>Tout est stocké dans votre navigateur.</span><button type="button" className={btnSecondary} onClick={() => setIsHelpOpen(false)}>Fermer</button></>}>
           <ul className="space-y-2 text-[12px] leading-relaxed">
-            <li><strong>Roadmap</strong> — trois niveaux : projet › tâche › sous-tâche. Chaque ligne se plie avec son propre chevron ▸, indépendamment des autres.</li>
+            <li><strong>Roadmap</strong> — trois niveaux : projet › tâche › sous-tâche. Chaque ligne se plie avec son propre bouton <span className="font-mono">+</span> / <span className="font-mono">−</span>, indépendamment des autres.</li>
+            <li><strong>Se déplacer dans le temps</strong> — clic maintenu sur la grille pour la faire glisser, flèches <span className="font-mono">←</span> <span className="font-mono">→</span> pour avancer d'une semaine, molette du milieu enfoncée aussi. Le repère rose marque le Jour J ; s'il est hors écran, une pastille discrète apparaît sur le bord.</li>
             <li><strong>Planning</strong> — cliquez une demi-case pour planifier. Glissez un bloc horizontalement pour changer de date, verticalement pour le confier à un autre collaborateur.</li>
             <li><strong>Kanban</strong> — le « + » de chaque colonne crée une tâche déjà dans le bon statut. Les cartes se réordonnent à la souris dans leur colonne.</li>
             <li><strong>Notes</strong> — l'endroit pour les devis, contacts et comparatifs, afin de garder les autres vues lisibles. Une note peut être rattachée à un projet.</li>
+            <li><strong>À plusieurs</strong> — bouton « Partager » : activez la collaboration, envoyez le lien d'invitation. Les modifications de chacun apparaissent en direct, en connexion directe de navigateur à navigateur.</li>
             <li className="pt-2"><strong>Raccourcis</strong> — <span className="font-mono">1 2 3 4</span> changent de vue, <span className="font-mono">T</span> recentre sur aujourd'hui, <span className="font-mono">F</span> affiche toute la période, <span className="font-mono">Ctrl+Z</span> annule, <span className="font-mono">Échap</span> ferme.</li>
           </ul>
         </Modal>
