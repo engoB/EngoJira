@@ -2221,6 +2221,7 @@ function AuraPlanApp() {
   const docRef = useRef(null);
   const applyingRemote = useRef(false);
   const lastPushed = useRef('');
+  const amorcePrete = useRef(false);   // tant que faux, on n'écrase rien : on écoute d'abord
 
   useEffect(() => { saveJson(COLLAB_KEY, collab); }, [collab]);
 
@@ -2232,13 +2233,15 @@ function AuraPlanApp() {
   }, [libReady]);
 
   useEffect(() => {
-    if (!collabOn) { setCollabState({ status: 'off', peers: 0, names: [], error: '', voies: [] }); return undefined; }
+    if (!collabOn) { amorcePrete.current = true; setCollabState({ status: 'off', peers: 0, names: [], error: '', voies: [] }); return undefined; }
     if (!libReady) { setCollabState((p) => ({ ...p, status: 'loading', voies: [] })); return undefined; }
     if (!window.YCollab) {
       setCollabState({ status: 'error', peers: 0, names: [], error: window.YCollabError || 'Bibliothèque indisponible', voies: [] });
       return undefined;
     }
 
+    amorcePrete.current = false;
+    lastPushed.current = '';
     const { Y, voies, mqtt } = window.YCollab;
     const doc = new Y.Doc();
     docRef.current = { doc };
@@ -2249,7 +2252,8 @@ function AuraPlanApp() {
     const pairs = new Map();                       // id -> { nom, vu, via }
     const diffuseurs = [];                          // fonctions d'envoi, une par voie
     const journal = { direct: { etat: voies && voies.length ? 'attente' : 'absent', envois: 0, recus: 0, detail: '' },
-                      relais: { etat: mqtt ? 'attente' : 'absent', envois: 0, recus: 0, detail: '' } };
+                      relais: { etat: mqtt ? 'attente' : 'absent', envois: 0, recus: 0, detail: '' },
+                      memoire: '', memoireLe: 0 };
 
     const rafraichir = () => {
       if (!vivant) return;
@@ -2264,6 +2268,8 @@ function AuraPlanApp() {
         peers: pairs.size,
         names: [String(collab.name || 'Moi')].concat(noms),
         error: journal.direct.detail && journal.relais.detail ? journal.relais.detail : '',
+        memoire: journal.memoire,
+        memoireLe: journal.memoireLe,
         voies: [
           { nom: 'Connexion directe', ...journal.direct },
           { nom: 'Relais public', ...journal.relais }
@@ -2297,12 +2303,45 @@ function AuraPlanApp() {
       catch (e) { /* message illisible : mot de passe différent */ }
     };
 
+    // Le tableau doit exister même quand personne n'est connecté : on garde une
+    // copie « retenue » sur le relais, que tout nouvel arrivant reçoit aussitôt.
+    let deposerMemoire = null;
+    let minuterieMemoire = null;
+    const planifierMemoire = () => {
+      if (!deposerMemoire) return;
+      if (minuterieMemoire) window.clearTimeout(minuterieMemoire);
+      minuterieMemoire = window.setTimeout(() => { try { deposerMemoire(); } catch (e) { /* no-op */ } }, 1200);
+    };
+
     const surMaj = (update, origin) => {
+      planifierMemoire();
       if (origin === 'remote') { tirerTout(); return; }
       diffuseurs.forEach((envoyer) => { try { envoyer(update); } catch (e) { /* no-op */ } });
     };
     doc.on('update', surMaj);
-    pousserTout();
+
+    // Au démarrage, on laisse d'abord parler la mémoire partagée : si un tableau
+    // existe déjà, il l'emporte sur le jeu de démonstration intact de cet appareil.
+    const seedIntact = JSON.stringify(dataToShared(dataRef.current)) === JSON.stringify(dataToShared(SEED));
+    let amorceFaite = false;
+    const amorcer = () => {
+      if (amorceFaite) return;
+      amorceFaite = true;
+      amorcePrete.current = true;
+      pousserTout();
+      planifierMemoire();
+    };
+    const memoireRecue = () => {
+      if (amorceFaite) return;
+      if (seedIntact) {
+        // Cet appareil n'a que la démonstration : le tableau du groupe l'emporte.
+        amorceFaite = true;
+        amorcePrete.current = true;
+        journal.memoire = 'récupérée';
+        rafraichir();
+      } else amorcer();
+    };
+    const attenteMemoire = window.setTimeout(() => { journal.memoire = journal.memoire || 'vierge'; amorcer(); rafraichir(); }, 2500);
 
     /* ---------------- Voie 1 : connexion directe entre navigateurs ---------------- */
     let salle = null;
@@ -2327,8 +2366,8 @@ function AuraPlanApp() {
       const aEtat = courante.makeAction('yetat');
       const aNom = courante.makeAction('nom');
       diffuseurs.push((u) => { journal.direct.envois++; aMaj.send(u); });
-      aMaj.onMessage = (d) => { journal.direct.recus++; appliquer(d); rafraichir(); };
-      aEtat.onMessage = (d) => { journal.direct.recus++; appliquer(d); rafraichir(); };
+      aMaj.onMessage = (d) => { journal.direct.recus++; memoireRecue(); appliquer(d); rafraichir(); };
+      aEtat.onMessage = (d) => { journal.direct.recus++; memoireRecue(); appliquer(d); rafraichir(); };
       aNom.onMessage = (nom, ctx) => { pairs.set(ctx.peerId, { nom: String(nom || 'Invité'), vu: Date.now(), via: 'direct' }); rafraichir(); };
       courante.onPeerJoin = (peerId) => {
         pairs.set(peerId, { nom: 'Invité', vu: Date.now(), via: 'direct' });
@@ -2388,8 +2427,20 @@ function AuraPlanApp() {
           const direBonjour = () => publier('p', new TextEncoder().encode(JSON.stringify({ nom: collab.name || 'Invité' })));
 
           diffuseurs.push((u) => { journal.relais.envois++; publier('u', u); });
+
+          // « retain » : le relais conserve ce message et le remet à tout nouvel arrivant.
+          deposerMemoire = async () => {
+            try {
+              c.publish(base + '/memoire', monId + '.' + (await chiffrer(cle, Y.encodeStateAsUpdate(doc))), { qos: 0, retain: true });
+              journal.memoire = 'à jour';
+              journal.memoireLe = Date.now();
+              rafraichir();
+            } catch (e) { /* no-op */ }
+          };
+
           publier('e', Y.encodeStateAsUpdate(doc));
           direBonjour();
+          if (amorceFaite) planifierMemoire();
           horloge = window.setInterval(() => { direBonjour(); rafraichir(); }, 6000);
         });
 
@@ -2403,6 +2454,14 @@ function AuraPlanApp() {
           try { octets = await dechiffrer(cle, texte.slice(point + 1)); }
           catch (e) { journal.relais.detail = 'message illisible (mot de passe différent ?)'; rafraichir(); return; }
           journal.relais.recus++;
+          if (topic.endsWith('/memoire')) {
+            journal.memoire = 'récupérée';
+            journal.memoireLe = Date.now();
+            memoireRecue();
+            appliquer(octets);
+            rafraichir();
+            return;
+          }
           if (topic.endsWith('/p')) {
             let nom = 'Invité';
             try { nom = JSON.parse(new TextDecoder().decode(octets)).nom || 'Invité'; } catch (e) { /* no-op */ }
@@ -2412,6 +2471,7 @@ function AuraPlanApp() {
               try { client.publish(base + '/e', monId + '.' + (await chiffrer(cle, Y.encodeStateAsUpdate(doc))), { qos: 0 }); } catch (e) { /* no-op */ }
             }
           } else {
+            memoireRecue();
             appliquer(octets);
           }
           rafraichir();
@@ -2426,6 +2486,8 @@ function AuraPlanApp() {
     return () => {
       vivant = false;
       if (horloge) window.clearInterval(horloge);
+      if (minuterieMemoire) window.clearTimeout(minuterieMemoire);
+      window.clearTimeout(attenteMemoire);
       try { doc.off('update', surMaj); } catch (e) { /* no-op */ }
       try { if (salle) salle.leave(); } catch (e) { /* no-op */ }
       try { if (client) client.end(true); } catch (e) { /* no-op */ }
@@ -2438,7 +2500,7 @@ function AuraPlanApp() {
   // Publication différentielle : seules les fiches réellement modifiées partent sur le réseau.
   useEffect(() => {
     const ctx = docRef.current;
-    if (!ctx || applyingRemote.current) return;
+    if (!ctx || applyingRemote.current || !amorcePrete.current) return;
     const snapshot = dataToShared(data);
     const serialized = JSON.stringify(snapshot);
     if (serialized === lastPushed.current) return;
@@ -2664,7 +2726,12 @@ function AuraPlanApp() {
           </div>
 
           <form onSubmit={(e) => { e.preventDefault(); enterBoard(passDraft, false); }}>
-            <Field T={T} label="Mot de passe partagé" hint="Le même pour tout le monde : c'est lui qui ouvre le tableau et chiffre les échanges.">
+            <Field T={T} label="Votre prénom" hint="Pour que les autres sachent qui est en ligne.">
+              <input className={inputCls} value={collab.name}
+                onChange={(e) => setCollab({ ...collab, name: e.target.value.slice(0, 40) })} placeholder="Ex. Magalie" />
+            </Field>
+            <div className="mt-3" />
+            <Field T={T} label="Mot de passe partagé" hint="Le même pour tout le monde : il ouvre le tableau et chiffre les échanges.">
               <input type="password" autoFocus className={inputCls} value={passDraft}
                 onChange={(e) => setPassDraft(e.target.value)} placeholder="••••••••" />
             </Field>
@@ -2741,7 +2808,12 @@ function AuraPlanApp() {
               <span className={`h-2 w-2 rounded-full ${collabState.status === 'connected' ? 'bg-emerald-400 animate-pulse'
                 : collabState.status === 'connecting' || collabState.status === 'loading' ? 'bg-amber-400 animate-pulse'
                   : collabState.status === 'error' ? 'bg-rose-500' : 'bg-slate-500'}`} />
-              {collabState.status === 'connected' ? (collabState.peers > 0 ? `${collabState.peers + 1} en ligne` : 'En direct')
+              {collabState.peers > 0 ? (
+                <span className="flex -space-x-1.5">
+                  {collabState.names.slice(0, 4).map((n, i) => <Avatar key={n + i} name={n} size="sm" />)}
+                </span>
+              ) : null}
+              {collabState.status === 'connected' ? (collabState.peers > 0 ? `${collabState.peers + 1}` : 'En direct')
                 : collabState.status === 'off' ? 'Partager' : 'Connexion…'}
             </span>
           </button>
@@ -3702,6 +3774,19 @@ function AuraPlanApp() {
                 </div>
               ) : null}
 
+              <div className={`flex items-center justify-between gap-2 rounded-xl border p-2.5 ${T.border} ${T.inset}`}>
+                <span className="flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full ${collabState.memoire === 'à jour' || collabState.memoire === 'récupérée' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                  <span className={`text-[11px] font-bold ${T.muted}`}>Tableau conservé en ligne</span>
+                </span>
+                <span className={`font-mono text-[10px] ${T.faint}`}>
+                  {collabState.memoire === 'à jour' ? 'enregistré'
+                    : collabState.memoire === 'récupérée' ? 'récupéré à l’ouverture'
+                      : collabState.memoire === 'vierge' ? 'nouveau tableau'
+                        : 'en cours…'}
+                </span>
+              </div>
+
               {collabState.voies && collabState.voies.length ? (
                 <div className={`space-y-1.5 rounded-xl border p-2.5 ${T.border} ${T.inset}`}>
                   <div className={`text-[10px] font-bold uppercase tracking-wide ${T.faint}`}>Voies de communication</div>
@@ -3718,7 +3803,9 @@ function AuraPlanApp() {
                   ))}
                   <p className={`pt-1 text-[10px] leading-relaxed ${T.faint}`}>
                     La première voie relie les navigateurs directement. La seconde passe par un relais public et
-                    fonctionne même derrière un réseau verrouillé ; son contenu est chiffré avec votre mot de passe.
+                    fonctionne même derrière un réseau verrouillé. Une copie chiffrée du tableau y est conservée :
+                    c'est elle qui permet de retrouver votre travail depuis un autre ordinateur, même si personne
+                    d'autre n'est connecté.
                   </p>
                 </div>
               ) : null}
