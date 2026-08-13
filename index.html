@@ -46,8 +46,16 @@
       const voies = [];
       if (nostr && nostr.joinRoom) voies.push({ nom: 'nostr', joinRoom: nostr.joinRoom });
       if (mqtt && mqtt.joinRoom) voies.push({ nom: 'mqtt', joinRoom: mqtt.joinRoom });
-      if (!voies.length) throw new Error('aucune voie de mise en relation disponible');
-      window.YCollab = { Y, voies };
+
+      // Voie de secours : relais public. Traverse les réseaux qui bloquent le pair-à-pair.
+      let mqttLib = null;
+      try { mqttLib = (await import('https://esm.sh/mqtt@5.15.2')).default; }
+      catch (e) {
+        try { mqttLib = (await import('https://esm.sh/mqtt@5.15.2/dist/mqtt.esm.js')).default; } catch (e2) { mqttLib = null; }
+      }
+
+      if (!voies.length && !mqttLib) throw new Error('aucune voie de communication disponible');
+      window.YCollab = { Y, voies, mqtt: mqttLib };
     } catch (err) {
       window.YCollabError = String((err && err.message) || err);
       console.warn('Collaboration temps réel indisponible :', err);
@@ -1259,6 +1267,15 @@ const COLLECTIONS = ['projects', 'planning', 'notes'];
 
 const PASS_KEY = 'auraplan_pass_v21';
 
+// Le direct exige une page sécurisée : ouvrir le fichier en double-clic (file://) ne peut pas marcher.
+const pageSecurisee = () => {
+  try {
+    if (window.isSecureContext) return true;
+    const h = window.location.hostname;
+    return h === 'localhost' || h === '127.0.0.1';
+  } catch (e) { return false; }
+};
+
 // Le salon découle de l'adresse du site : tous ceux qui ouvrent la même URL
 // se retrouvent automatiquement sur le même tableau, sans rien à configurer.
 const roomFromLocation = () => {
@@ -1293,6 +1310,56 @@ const sharedToData = (doc) => {
     out[c] = list.map((item) => { const copy = { ...item }; delete copy.__order; return copy; });
   });
   return normalizeData(out);
+};
+
+// Relais publics essayés dans l'ordre. Ils ne voient que du chiffré.
+const BROKERS = [
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://test.mosquitto.org:8081/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt'
+];
+
+const subtle = () => {
+  const c = (typeof window !== 'undefined' && window.crypto) || (typeof globalThis !== 'undefined' && globalThis.crypto);
+  return c && c.subtle ? c.subtle : null;
+};
+const randomBytes = (n) => {
+  const c = (typeof window !== 'undefined' && window.crypto) || globalThis.crypto;
+  const out = new Uint8Array(n);
+  c.getRandomValues(out);
+  return out;
+};
+const toBase64 = (bytes) => {
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return window.btoa(bin);
+};
+const fromBase64 = (str) => Uint8Array.from(window.atob(str), (c) => c.charCodeAt(0));
+
+// La clé vient du mot de passe : le relais transporte des octets illisibles pour lui.
+const deriveKey = async (password, salt) => {
+  const sub = subtle();
+  if (!sub) throw new Error('chiffrement indisponible (page non sécurisée ?)');
+  const base = await sub.importKey('raw', new TextEncoder().encode(String(password)), 'PBKDF2', false, ['deriveKey']);
+  return sub.deriveKey(
+    { name: 'PBKDF2', salt: new TextEncoder().encode('auraplan:' + salt), iterations: 60000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+  );
+};
+
+const chiffrer = async (key, bytes) => {
+  const iv = randomBytes(12);
+  const ct = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv }, key, bytes));
+  const out = new Uint8Array(iv.length + ct.length);
+  out.set(iv, 0);
+  out.set(ct, iv.length);
+  return toBase64(out);
+};
+
+const dechiffrer = async (key, b64) => {
+  const raw = fromBase64(b64);
+  return new Uint8Array(await subtle().decrypt({ name: 'AES-GCM', iv: raw.subarray(0, 12) }, key, raw.subarray(12)));
 };
 
 /* ------------------------------ Composants ------------------------------ */
@@ -2148,7 +2215,7 @@ function AuraPlanApp() {
     };
   });
   const collabOn = unlocked && !collab.offline && !!password;
-  const [collabState, setCollabState] = useState({ status: 'off', peers: 0, names: [], error: '' });
+  const [collabState, setCollabState] = useState({ status: 'off', peers: 0, names: [], error: '', voies: [] });
   const [libReady, setLibReady] = useState(() => !!(window.YCollab || window.YCollabError));
 
   const docRef = useRef(null);
@@ -2165,28 +2232,43 @@ function AuraPlanApp() {
   }, [libReady]);
 
   useEffect(() => {
-    if (!collabOn) { setCollabState({ status: 'off', peers: 0, names: [], error: '' }); return undefined; }
-    if (!libReady) { setCollabState((p) => ({ ...p, status: 'loading' })); return undefined; }
+    if (!collabOn) { setCollabState({ status: 'off', peers: 0, names: [], error: '', voies: [] }); return undefined; }
+    if (!libReady) { setCollabState((p) => ({ ...p, status: 'loading', voies: [] })); return undefined; }
     if (!window.YCollab) {
-      setCollabState({ status: 'error', peers: 0, names: [], error: window.YCollabError || 'Bibliothèque indisponible' });
+      setCollabState({ status: 'error', peers: 0, names: [], error: window.YCollabError || 'Bibliothèque indisponible', voies: [] });
       return undefined;
     }
 
-    const { Y, voies } = window.YCollab;
+    const { Y, voies, mqtt } = window.YCollab;
     const doc = new Y.Doc();
     docRef.current = { doc };
     window.__auraplanDoc = doc;
 
-    let room = null;
     let vivant = true;
-    const noms = new Map();
-    let publierEtat = null;
-    let publierMaj = null;
-    let publierNom = null;
+    const monId = Math.random().toString(36).slice(2, 10);
+    const pairs = new Map();                       // id -> { nom, vu, via }
+    const diffuseurs = [];                          // fonctions d'envoi, une par voie
+    const journal = { direct: { etat: voies && voies.length ? 'attente' : 'absent', envois: 0, recus: 0, detail: '' },
+                      relais: { etat: mqtt ? 'attente' : 'absent', envois: 0, recus: 0, detail: '' } };
 
-    const majPresence = () => {
+    const rafraichir = () => {
       if (!vivant) return;
-      setCollabState({ status: 'connected', peers: noms.size, names: ['' + collab.name].concat(Array.from(noms.values())), error: '' });
+      const maintenant = Date.now();
+      Array.from(pairs.entries()).forEach(([id, p]) => { if (maintenant - p.vu > 20000) pairs.delete(id); });
+      const noms = Array.from(pairs.values()).map((p) => p.nom);
+      const connecte = journal.direct.etat === 'connecté' || journal.relais.etat === 'connecté';
+      setCollabState({
+        status: connecte ? 'connected'
+          : (journal.direct.etat === 'échec' && journal.relais.etat !== 'attente' && journal.relais.etat !== 'connexion') ? 'error'
+            : 'connecting',
+        peers: pairs.size,
+        names: [String(collab.name || 'Moi')].concat(noms),
+        error: journal.direct.detail && journal.relais.detail ? journal.relais.detail : '',
+        voies: [
+          { nom: 'Connexion directe', ...journal.direct },
+          { nom: 'Relais public', ...journal.relais }
+        ]
+      });
     };
 
     const pousserTout = () => {
@@ -2210,77 +2292,143 @@ function AuraPlanApp() {
       window.setTimeout(() => { applyingRemote.current = false; }, 0);
     };
 
-    // Les modifications locales partent immédiatement vers les autres.
+    const appliquer = (octets) => {
+      try { Y.applyUpdate(doc, octets instanceof Uint8Array ? octets : new Uint8Array(octets), 'remote'); }
+      catch (e) { /* message illisible : mot de passe différent */ }
+    };
+
     const surMaj = (update, origin) => {
       if (origin === 'remote') { tirerTout(); return; }
-      if (publierMaj) { try { publierMaj(update); } catch (e) { /* no-op */ } }
+      diffuseurs.forEach((envoyer) => { try { envoyer(update); } catch (e) { /* no-op */ } });
     };
     doc.on('update', surMaj);
-
-    // On publie notre tableau tout de suite : le premier arrivé amorce l'espace,
-    // les suivants fusionnent sans rien perdre (identifiants stables).
     pousserTout();
 
-    const essayer = (index) => {
-      if (!vivant) return;
-      if (index >= voies.length) {
-        setCollabState({ status: 'error', peers: 0, names: [], error: 'aucun relais joignable' });
+    /* ---------------- Voie 1 : connexion directe entre navigateurs ---------------- */
+    let salle = null;
+    const lancerDirect = (index) => {
+      if (!vivant || !voies || index >= voies.length) {
+        if (vivant && journal.direct.etat !== 'connecté') { journal.direct.etat = 'échec'; journal.direct.detail = 'aucun relais de mise en relation joignable'; rafraichir(); }
         return;
       }
-      const voie = voies[index];
-      setCollabState((p) => ({ ...p, status: 'connecting', error: '' }));
-
-      let salle = null;
+      journal.direct.etat = 'connexion';
+      rafraichir();
+      let courante = null;
       try {
-        salle = voie.joinRoom({ appId: 'auraplan-studio', password: password || undefined }, collab.room,
-          { onJoinError: () => { if (vivant) window.setTimeout(() => essayer(index + 1), 0); } });
+        courante = voies[index].joinRoom({ appId: 'auraplan-studio', password: password || undefined }, collab.room,
+          { onJoinError: (d) => { journal.direct.detail = (d && d.error) || 'refus'; window.setTimeout(() => lancerDirect(index + 1), 0); } });
       } catch (err) {
-        window.setTimeout(() => essayer(index + 1), 0);
+        journal.direct.detail = String(err.message || err);
+        window.setTimeout(() => lancerDirect(index + 1), 0);
         return;
       }
-
-      room = salle;
-      const actionMaj = salle.makeAction('ymaj');
-      const actionEtat = salle.makeAction('yetat');
-      const actionNom = salle.makeAction('nom');
-      publierMaj = (u) => actionMaj.send(u);
-      publierEtat = (cible) => actionEtat.send(Y.encodeStateAsUpdate(doc), cible ? { target: cible } : undefined);
-      publierNom = (cible) => actionNom.send(String(collab.name || 'Invité'), cible ? { target: cible } : undefined);
-
-      const appliquer = (donnees) => {
-        try {
-          const octets = donnees instanceof Uint8Array ? donnees : new Uint8Array(donnees);
-          Y.applyUpdate(doc, octets, 'remote');
-        } catch (e) { /* no-op */ }
+      salle = courante;
+      const aMaj = courante.makeAction('ymaj');
+      const aEtat = courante.makeAction('yetat');
+      const aNom = courante.makeAction('nom');
+      diffuseurs.push((u) => { journal.direct.envois++; aMaj.send(u); });
+      aMaj.onMessage = (d) => { journal.direct.recus++; appliquer(d); rafraichir(); };
+      aEtat.onMessage = (d) => { journal.direct.recus++; appliquer(d); rafraichir(); };
+      aNom.onMessage = (nom, ctx) => { pairs.set(ctx.peerId, { nom: String(nom || 'Invité'), vu: Date.now(), via: 'direct' }); rafraichir(); };
+      courante.onPeerJoin = (peerId) => {
+        pairs.set(peerId, { nom: 'Invité', vu: Date.now(), via: 'direct' });
+        try { aEtat.send(Y.encodeStateAsUpdate(doc), { target: peerId }); aNom.send(String(collab.name || 'Invité'), { target: peerId }); } catch (e) { /* no-op */ }
+        rafraichir();
       };
-      actionMaj.onMessage = (donnees) => appliquer(donnees);
-      actionEtat.onMessage = (donnees) => appliquer(donnees);
-      actionNom.onMessage = (nom, ctx) => { noms.set(ctx.peerId, String(nom || 'Invité')); majPresence(); };
-
-      salle.onPeerJoin = (peerId) => {
-        noms.set(peerId, 'Invité');
-        majPresence();
-        // Échange complet à la rencontre : chacun repart avec l'union des deux tableaux.
-        try { publierEtat(peerId); publierNom(peerId); } catch (e) { /* no-op */ }
-      };
-      salle.onPeerLeave = (peerId) => { noms.delete(peerId); majPresence(); };
-
-      majPresence();
-      setCollabState((p) => ({ ...p, status: 'connected', error: '' }));
-
-      // Si aucun pair au bout de 12 s, on tente la voie suivante sans rien interrompre.
-      window.setTimeout(() => {
-        if (!vivant || noms.size > 0) return;
-        if (index + 1 < voies.length) { try { salle.leave(); } catch (e) { /* no-op */ } essayer(index + 1); }
-      }, 12000);
+      courante.onPeerLeave = (peerId) => { pairs.delete(peerId); rafraichir(); };
+      journal.direct.etat = 'connecté';
+      journal.direct.detail = voies[index].nom;
+      rafraichir();
     };
+    lancerDirect(0);
 
-    essayer(0);
+    /* ---------------- Voie 2 : relais public, contenu chiffré ---------------- */
+    let client = null;
+    let horloge = null;
+    const lancerRelais = async () => {
+      if (!mqtt) { rafraichir(); return; }
+      let cle = null;
+      try { cle = await deriveKey(password, collab.room); }
+      catch (err) { journal.relais.etat = 'échec'; journal.relais.detail = String(err.message || err); rafraichir(); return; }
+      if (!vivant) return;
+
+      const base = 'auraplan/' + collab.room;
+      const essayer = (index) => {
+        if (!vivant) return;
+        if (index >= BROKERS.length) { journal.relais.etat = 'échec'; journal.relais.detail = 'aucun relais joignable'; rafraichir(); return; }
+        journal.relais.etat = 'connexion';
+        journal.relais.detail = BROKERS[index].replace(/^wss:\/\//, '').split(':')[0];
+        rafraichir();
+
+        let c = null;
+        try {
+          c = mqtt.connect(BROKERS[index], { clientId: 'auraplan_' + monId, connectTimeout: 8000, reconnectPeriod: 6000, clean: true, keepalive: 30 });
+        } catch (err) { window.setTimeout(() => essayer(index + 1), 0); return; }
+
+        let ouvert = false;
+        const secours = window.setTimeout(() => {
+          if (ouvert || !vivant) return;
+          try { c.end(true); } catch (e) { /* no-op */ }
+          essayer(index + 1);
+        }, 9000);
+
+        c.on('connect', () => {
+          ouvert = true;
+          window.clearTimeout(secours);
+          if (!vivant) { try { c.end(true); } catch (e) { /* no-op */ } return; }
+          client = c;
+          journal.relais.etat = 'connecté';
+          rafraichir();
+          c.subscribe(base + '/#', { qos: 0 });
+
+          const publier = async (suffixe, charge) => {
+            try { c.publish(base + '/' + suffixe, monId + '.' + (await chiffrer(cle, charge)), { qos: 0 }); }
+            catch (e) { /* no-op */ }
+          };
+          const direBonjour = () => publier('p', new TextEncoder().encode(JSON.stringify({ nom: collab.name || 'Invité' })));
+
+          diffuseurs.push((u) => { journal.relais.envois++; publier('u', u); });
+          publier('e', Y.encodeStateAsUpdate(doc));
+          direBonjour();
+          horloge = window.setInterval(() => { direBonjour(); rafraichir(); }, 6000);
+        });
+
+        c.on('message', async (topic, charge) => {
+          const texte = String(charge);
+          const point = texte.indexOf('.');
+          if (point < 0) return;
+          const auteur = texte.slice(0, point);
+          if (auteur === monId) return;                       // notre propre écho
+          let octets = null;
+          try { octets = await dechiffrer(cle, texte.slice(point + 1)); }
+          catch (e) { journal.relais.detail = 'message illisible (mot de passe différent ?)'; rafraichir(); return; }
+          journal.relais.recus++;
+          if (topic.endsWith('/p')) {
+            let nom = 'Invité';
+            try { nom = JSON.parse(new TextDecoder().decode(octets)).nom || 'Invité'; } catch (e) { /* no-op */ }
+            const connu = pairs.has(auteur);
+            pairs.set(auteur, { nom, vu: Date.now(), via: 'relais' });
+            if (!connu && client) {
+              try { client.publish(base + '/e', monId + '.' + (await chiffrer(cle, Y.encodeStateAsUpdate(doc))), { qos: 0 }); } catch (e) { /* no-op */ }
+            }
+          } else {
+            appliquer(octets);
+          }
+          rafraichir();
+        });
+
+        c.on('error', () => { if (!ouvert) { window.clearTimeout(secours); try { c.end(true); } catch (e) { /* no-op */ } essayer(index + 1); } });
+      };
+      essayer(0);
+    };
+    lancerRelais();
 
     return () => {
       vivant = false;
+      if (horloge) window.clearInterval(horloge);
       try { doc.off('update', surMaj); } catch (e) { /* no-op */ }
-      try { if (room) room.leave(); } catch (e) { /* no-op */ }
+      try { if (salle) salle.leave(); } catch (e) { /* no-op */ }
+      try { if (client) client.end(true); } catch (e) { /* no-op */ }
       try { doc.destroy(); } catch (e) { /* no-op */ }
       docRef.current = null;
       window.__auraplanDoc = null;
@@ -2528,6 +2676,14 @@ function AuraPlanApp() {
           </form>
 
           <button type="button" onClick={() => enterBoard('', true)} className={`mt-2 w-full ${btnQuiet}`}>Travailler seul, sur cet appareil</button>
+
+          {!pageSecurisee() ? (
+            <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-amber-200">
+              Cette page n'est pas ouverte en <strong>https</strong>. Le travail à plusieurs ne peut pas fonctionner ainsi :
+              publiez le fichier (GitHub Pages) et ouvrez l'adresse `https://…` plutôt que le fichier depuis votre disque.
+              Vous pouvez tout de même travailler seul.
+            </div>
+          ) : null}
 
           <p className={`mt-5 border-t pt-4 text-[10px] leading-relaxed ${T.border} ${T.faint}`}>
             Tous ceux qui ouvrent cette adresse avec le même mot de passe voient le tableau évoluer en direct.
@@ -3516,8 +3672,9 @@ function AuraPlanApp() {
               </div>
 
               <p className={`text-[11px] leading-relaxed ${T.faint}`}>
-                Envoyez simplement cette adresse et le mot de passe. Toute personne qui a les deux voit le tableau
-                évoluer en direct — il n'y a rien d'autre à installer ni à régler.
+                Envoyez cette adresse et le mot de passe : c'est tout. <strong className={isDark ? 'text-slate-300' : 'text-slate-700'}>
+                Aucun compte, aucun jeton, aucun réglage GitHub</strong> n'est nécessaire pour le direct — la section GitHub
+                plus bas ne sert qu'à une sauvegarde facultative.
               </p>
 
               <div className={`rounded-xl border p-2.5 ${T.border} ${T.inset}`}>
@@ -3537,6 +3694,34 @@ function AuraPlanApp() {
                     onChange={(e) => { setPassword(e.target.value); saveJson(PASS_KEY, { value: e.target.value }); }} />
                 </Field>
               </div>
+
+              {!pageSecurisee() ? (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] leading-relaxed text-amber-200">
+                  Page ouverte hors <strong>https</strong> : le direct est impossible dans cette configuration.
+                  Ouvrez l'adresse publiée (GitHub Pages) plutôt que le fichier local.
+                </div>
+              ) : null}
+
+              {collabState.voies && collabState.voies.length ? (
+                <div className={`space-y-1.5 rounded-xl border p-2.5 ${T.border} ${T.inset}`}>
+                  <div className={`text-[10px] font-bold uppercase tracking-wide ${T.faint}`}>Voies de communication</div>
+                  {collabState.voies.map((v) => (
+                    <div key={v.nom} className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="flex items-center gap-1.5">
+                        <span className={`h-1.5 w-1.5 rounded-full ${v.etat === 'connecté' ? 'bg-emerald-400' : v.etat === 'échec' ? 'bg-rose-500' : v.etat === 'absent' ? 'bg-slate-600' : 'bg-amber-400'}`} />
+                        <span className={T.muted}>{v.nom}</span>
+                      </span>
+                      <span className={`font-mono text-[10px] ${v.etat === 'connecté' ? 'text-emerald-400' : v.etat === 'échec' ? 'text-rose-400' : T.faint}`}>
+                        {v.etat}{v.etat === 'connecté' ? ` · ${v.envois}↑ ${v.recus}↓` : v.detail ? ` · ${v.detail}` : ''}
+                      </span>
+                    </div>
+                  ))}
+                  <p className={`pt-1 text-[10px] leading-relaxed ${T.faint}`}>
+                    La première voie relie les navigateurs directement. La seconde passe par un relais public et
+                    fonctionne même derrière un réseau verrouillé ; son contenu est chiffré avec votre mot de passe.
+                  </p>
+                </div>
+              ) : null}
 
               {collabState.names.length > 1 ? (
                 <div className="flex items-center gap-2">
