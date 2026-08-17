@@ -1321,16 +1321,53 @@ const deriverCle = async (motDePasse, sel) => {
   return sub.deriveKey({ name: 'PBKDF2', salt: new TextEncoder().encode('auraplan:' + sel), iterations: 60000, hash: 'SHA-256' },
     base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 };
-const chiffrerTexte = async (cle, texte) => {
-  const iv = alea(12);
-  const ct = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv }, cle, new TextEncoder().encode(texte)));
-  const out = new Uint8Array(12 + ct.length); out.set(iv, 0); out.set(ct, 12);
-  return versBase64(out);
+// Le texte est compressé avant d'être chiffré : le fichier déposé est
+// environ dix fois plus léger, ce qui allège aussi l'historique du dépôt.
+const traverserFlux = async (flux, octets) => {
+  const ecrivain = flux.writable.getWriter();
+  ecrivain.write(octets);
+  ecrivain.close();
+  const lecteur = flux.readable.getReader();
+  const morceaux = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await lecteur.read();
+    if (done) break;
+    morceaux.push(value);
+    total += value.length;
+  }
+  const sortie = new Uint8Array(total);
+  let position = 0;
+  morceaux.forEach((m) => { sortie.set(m, position); position += m.length; });
+  return sortie;
 };
-const dechiffrerTexte = async (cle, b64) => {
+
+const compresser = async (texte) => {
+  const octets = new TextEncoder().encode(texte);
+  const CS = (typeof window !== 'undefined' && window.CompressionStream) || (typeof globalThis !== 'undefined' && globalThis.CompressionStream);
+  if (typeof CS !== 'function') return { octets, compresse: false };
+  try { return { octets: await traverserFlux(new CS('gzip'), octets), compresse: true }; }
+  catch (e) { return { octets, compresse: false }; }
+};
+
+const decompresser = async (octets, compresse) => {
+  if (!compresse) return new TextDecoder().decode(octets);
+  const DS = (typeof window !== 'undefined' && window.DecompressionStream) || (typeof globalThis !== 'undefined' && globalThis.DecompressionStream);
+  return new TextDecoder().decode(await traverserFlux(new DS('gzip'), octets));
+};
+
+const chiffrerTexte = async (cle, texte) => {
+  const { octets, compresse } = await compresser(texte);
+  const iv = alea(12);
+  const ct = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv }, cle, octets));
+  const out = new Uint8Array(12 + ct.length); out.set(iv, 0); out.set(ct, 12);
+  return { charge: versBase64(out), compresse };
+};
+
+const dechiffrerTexte = async (cle, b64, compresse) => {
   const brut = depuisBase64(b64);
   const clair = await subtle().decrypt({ name: 'AES-GCM', iv: brut.subarray(0, 12) }, cle, brut.subarray(12));
-  return new TextDecoder().decode(clair);
+  return decompresser(new Uint8Array(clair), !!compresse);
 };
 
 const COLLECTIONS = ['projects', 'planning', 'notes'];
@@ -2312,7 +2349,10 @@ function AuraPlanApp() {
   const majsRef = useRef(loadJson('auraplan_majs_v22', { meta: 0, projects: {}, planning: {}, notes: {} }));
   const supprRef = useRef(loadJson('auraplan_suppr_v22', { projects: {}, planning: {}, notes: {} }));
   const dernierFichier = useRef(null);           // { contenu, majs, supprimes, presence }
+  const dernierDistant = useRef(null);           // dernière version connue du dépôt
   const shaRef = useRef(null);
+  const etagRef = useRef(null);        // empreinte de la dernière version lue
+  const derniereActivite = useRef(Date.now());
   const appliqueDistant = useRef(false);
   const enCours = useRef(false);
   const aEcrire = useRef(false);
@@ -2341,6 +2381,7 @@ function AuraPlanApp() {
         });
       });
       aEcrire.current = true;
+      derniereActivite.current = Date.now();
     } else if (!avant) {
       // Première ouverture : si l'appareil n'a que la démonstration, elle ne doit
       // rien revendiquer, sinon elle écraserait le tableau déjà présent dans le dépôt.
@@ -2363,9 +2404,11 @@ function AuraPlanApp() {
   const lireDistant = useCallback(async (cle) => {
     // Avec un jeton : l'API, toujours fraîche. Sans jeton : le fichier brut, avec anti-cache.
     if (sync.token) {
-      const r = await fetch(`${cheminApi()}?ref=${encodeURIComponent(sync.branch)}&t=${Date.now()}`, {
-        headers: { Authorization: `Bearer ${sync.token}`, Accept: 'application/vnd.github+json' }, cache: 'no-store'
-      });
+      const entetes = { Authorization: `Bearer ${sync.token}`, Accept: 'application/vnd.github+json' };
+      if (etagRef.current) entetes['If-None-Match'] = etagRef.current;
+      const r = await fetch(`${cheminApi()}?ref=${encodeURIComponent(sync.branch)}`, { headers: entetes, cache: 'no-store' });
+      if (r.status === 304) return { inchange: true };          // rien n'a bougé : aucun octet transféré
+      try { const et = r.headers && r.headers.get && r.headers.get('ETag'); if (et) etagRef.current = et; } catch (e) { /* no-op */ }
       if (r.status === 404) return { absent: true };
       if (r.status === 401 || r.status === 403) throw new Error(r.status === 401 ? 'jeton refusé' : 'accès refusé (droits du jeton ?)');
       if (!r.ok) throw new Error('lecture impossible (' + r.status + ')');
@@ -2375,7 +2418,10 @@ function AuraPlanApp() {
       return { fichier: JSON.parse(texte) };
     }
     const url = `https://raw.githubusercontent.com/${sync.owner}/${sync.repo}/${sync.branch}/${FICHIER}?t=${Date.now()}`;
-    const r = await fetch(url, { cache: 'no-store' });
+    const entetesBrut = etagRef.current ? { 'If-None-Match': etagRef.current } : {};
+    const r = await fetch(url, { cache: 'no-store', headers: entetesBrut });
+    if (r.status === 304) return { inchange: true };
+    try { const et = r.headers && r.headers.get && r.headers.get('ETag'); if (et) etagRef.current = et; } catch (e) { /* no-op */ }
     if (r.status === 404) return { absent: true };
     if (!r.ok) throw new Error('lecture impossible (' + r.status + ')');
     return { fichier: JSON.parse(await r.text()) };
@@ -2412,13 +2458,20 @@ function AuraPlanApp() {
 
       let distant = null;
       const lu = await lireDistant(cle);
-      if (!lu.absent) {
+      if (lu.inchange && !aEcrire.current && !forcerEcriture) {
+        setSyncEtat((p) => ({ ...p, etat: peutEcrire ? 'ok' : 'lecture', message: '', dernier: Date.now() }));
+        enCours.current = false;
+        return;
+      }
+      if (lu.inchange) { distant = dernierDistant.current; }
+      else if (!lu.absent) {
         const enveloppe = lu.fichier;
         if (!enveloppe || enveloppe.format !== 'auraplan1') throw new Error('fichier non reconnu');
         let clair = null;
-        try { clair = JSON.parse(await dechiffrerTexte(cle, enveloppe.charge)); }
+        try { clair = JSON.parse(await dechiffrerTexte(cle, enveloppe.charge, enveloppe.compresse)); }
         catch (e) { throw new Error('mot de passe différent de celui du tableau'); }
         distant = clair;
+        dernierDistant.current = clair;
       }
 
       const local = dernierFichier.current;
@@ -2450,12 +2503,14 @@ function AuraPlanApp() {
       if (doitEcrire) {
         const presence = { ...(fusion.presence || {}) };
         presence[monAppareil] = { nom: sync.nom || collabNomParDefaut, vu: Date.now() };
+        const paquet = await chiffrerTexte(cle, JSON.stringify({
+          contenu: fusion.contenu, majs: fusion.majs, supprimes: fusion.supprimes, presence
+        }));
         const charge = {
           format: 'auraplan1',
+          compresse: paquet.compresse,
           modifie: new Date().toISOString(),
-          charge: await chiffrerTexte(cle, JSON.stringify({
-            contenu: fusion.contenu, majs: fusion.majs, supprimes: fusion.supprimes, presence
-          }))
+          charge: paquet.charge
         };
         const res = await ecrireDistant(charge, shaRef.current);
         if (res && res.conflit) {                       // quelqu'un a écrit entre-temps : on refait un tour
@@ -2465,6 +2520,8 @@ function AuraPlanApp() {
           return;
         }
         aEcrire.current = false;
+        etagRef.current = null;
+        dernierDistant.current = { contenu: fusion.contenu, majs: fusion.majs, supprimes: fusion.supprimes, presence };
         dernierFichier.current.presence = presence;
         setSyncEtat((p) => ({ ...p, etat: 'ok', message: '', dernier: Date.now(), participants, ecritures: p.ecritures + 1 }));
       } else {
@@ -2485,10 +2542,20 @@ function AuraPlanApp() {
     let vivant = true;
     const tour = () => { if (vivant) synchroniser(false); };
     tour();
-    const minuteur = window.setInterval(tour, sync.token ? 8000 : 25000);
+    const rythme = () => {
+      const inactifDepuis = Date.now() - derniereActivite.current;
+      if (!sync.token) return 30000;
+      if (inactifDepuis < 3 * 60000) return 8000;      // on travaille : relève rapprochée
+      if (inactifDepuis < 20 * 60000) return 30000;    // pause courte
+      return 120000;                                    // onglet oublié en arrière-plan
+    };
+    let minuteur = window.setTimeout(function boucle() {
+      tour();
+      minuteur = window.setTimeout(boucle, rythme());
+    }, rythme());
     const surRetour = () => { if (document.visibilityState === 'visible') tour(); };
     document.addEventListener('visibilitychange', surRetour);
-    return () => { vivant = false; window.clearInterval(minuteur); document.removeEventListener('visibilitychange', surRetour); };
+    return () => { vivant = false; window.clearTimeout(minuteur); document.removeEventListener('visibilitychange', surRetour); };
   }, [partageActif, synchroniser, sync.token]);
 
   // Envoi rapide après une modification locale.
