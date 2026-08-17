@@ -34,36 +34,7 @@
 <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js" crossorigin></script>
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
-<!-- Collaboration temps réel : Yjs pour la fusion, Trystero pour la mise en relation -->
-<script type="module">
-  (async () => {
-    try {
-      const Y = await import('https://esm.sh/yjs@13.6.20');
-      const [nostr, mqtt] = await Promise.all([
-        import('https://esm.sh/trystero@0.25.3/nostr').catch(() => null),
-        import('https://esm.sh/trystero@0.25.3/mqtt').catch(() => null)
-      ]);
-      const voies = [];
-      if (nostr && nostr.joinRoom) voies.push({ nom: 'nostr', joinRoom: nostr.joinRoom });
-      if (mqtt && mqtt.joinRoom) voies.push({ nom: 'mqtt', joinRoom: mqtt.joinRoom });
-
-      // Voie de secours : relais public. Traverse les réseaux qui bloquent le pair-à-pair.
-      let mqttLib = null;
-      try { mqttLib = (await import('https://esm.sh/mqtt@5.15.2')).default; }
-      catch (e) {
-        try { mqttLib = (await import('https://esm.sh/mqtt@5.15.2/dist/mqtt.esm.js')).default; } catch (e2) { mqttLib = null; }
-      }
-
-      if (!voies.length && !mqttLib) throw new Error('aucune voie de communication disponible');
-      window.YCollab = { Y, voies, mqtt: mqttLib };
-    } catch (err) {
-      window.YCollabError = String((err && err.message) || err);
-      console.warn('Collaboration temps réel indisponible :', err);
-    } finally {
-      window.dispatchEvent(new Event('ycollab-ready'));
-    }
-  })();
-</script>
+<!-- Aucune bibliothèque externe pour le partage : GitHub et le chiffrement du navigateur suffisent. -->
 
 <style>
   html, body { height: 100%; }
@@ -219,10 +190,34 @@ const normalizeSubtask = (s, fallbackDate) => {
   };
 };
 
+const normalizeCommentaire = (c) => {
+  const o = c && typeof c === 'object' ? c : {};
+  return {
+    id: o.id ? String(o.id) : uid('c'),
+    auteur: safeText(o.auteur, 'Quelqu’un'),
+    texte: rawText(o.texte, 4000),
+    date: typeof o.date === 'string' ? o.date : new Date().toISOString()
+  };
+};
+
+const normalizeEvenement = (e) => {
+  const o = e && typeof e === 'object' ? e : {};
+  return {
+    id: o.id ? String(o.id) : uid('a'),
+    auteur: safeText(o.auteur, 'Quelqu’un'),
+    texte: safeText(o.texte, 'a modifié la tâche'),
+    date: typeof o.date === 'string' ? o.date : new Date().toISOString()
+  };
+};
+
 const normalizeTask = (t, index) => {
   const o = t && typeof t === 'object' ? t : {};
   const startDate = safeDate(o.startDate);
   return {
+    ref: typeof o.ref === 'string' && /^[A-Z]+-\d+$/.test(o.ref) ? o.ref : '',
+    commentaires: Array.isArray(o.commentaires) ? o.commentaires.slice(-100).map(normalizeCommentaire) : [],
+    journal: Array.isArray(o.journal) ? o.journal.slice(-30).map(normalizeEvenement) : [],
+    bloquePar: Array.isArray(o.bloquePar) ? o.bloquePar.filter((x) => typeof x === 'string').slice(0, 10) : [],
     id: o.id ? String(o.id) : uid('t'),
     title: safeText(o.title, 'Tâche sans titre'),
     assignee: safeText(o.assignee, 'Non assigné'),
@@ -291,12 +286,23 @@ const normalizeEvent = (raw) => {
   return { date: safeDate(o.date) === TODAY_STR && !isIsoDate(o.date) ? DEFAULT_EVENT.date : safeDate(o.date), label: safeText(o.label, DEFAULT_EVENT.label) };
 };
 
+// Référence courte façon Jira : MAR-1, MAR-2… stable une fois attribuée.
+const attribuerReferences = (projects) => {
+  let max = 0;
+  projects.forEach((p) => p.tasks.forEach((t) => {
+    const m = /^MAR-(\d+)$/.exec(t.ref || '');
+    if (m) max = Math.max(max, Number(m[1]));
+  }));
+  projects.forEach((p) => p.tasks.forEach((t) => { if (!t.ref) { max += 1; t.ref = 'MAR-' + max; } }));
+  return projects;
+};
+
 const normalizeData = (raw) => {
   const o = raw && typeof raw === 'object' ? raw : {};
   return {
     columnLabels: normalizeColumnLabels(o.columnLabels),
     event: normalizeEvent(o.event),
-    projects: Array.isArray(o.projects) ? o.projects.map(normalizeProject) : [],
+    projects: attribuerReferences(Array.isArray(o.projects) ? o.projects.map(normalizeProject) : []),
     planning: Array.isArray(o.planning) ? o.planning.map(normalizeEntry)
       : Array.isArray(o.planningEntries) ? o.planningEntries.map(normalizeEntry) : [],
     notes: Array.isArray(o.notes) ? o.notes.map(normalizeNote) : []
@@ -1257,17 +1263,11 @@ const loadData = () => {
   return clean;
 };
 
-/* ----------------------- Collaboration temps réel ----------------------- */
-const COLLAB_KEY = 'auraplan_collab_v21';
-const DEFAULT_SIGNALING = ['wss://signaling.yjs.dev', 'wss://y-webrtc-eu.fly.dev'];
-
-// Chaque entité est une entrée distincte du document partagé : deux personnes
-// qui modifient deux fiches différentes ne s'écrasent jamais.
-const COLLECTIONS = ['projects', 'planning', 'notes'];
-
-const PASS_KEY = 'auraplan_pass_v21';
-
-// Le direct exige une page sécurisée : ouvrir le fichier en double-clic (file://) ne peut pas marcher.
+/* ------------------------- Partage via GitHub -------------------------
+   Le tableau est un fichier chiffré déposé dans votre dépôt. Chaque appareil
+   le relit régulièrement et y réécrit ses modifications. Rien d'autre.
+   -------------------------------------------------------------------- */
+// Le chiffrement du navigateur n'existe qu'en https (ou sur localhost).
 const pageSecurisee = () => {
   try {
     if (window.isSecureContext) return true;
@@ -1276,93 +1276,130 @@ const pageSecurisee = () => {
   } catch (e) { return false; }
 };
 
-// Le salon découle de l'adresse du site : tous ceux qui ouvrent la même URL
-// se retrouvent automatiquement sur le même tableau, sans rien à configurer.
-const roomFromLocation = () => {
-  let src = 'auraplan-local';
-  try { src = String(window.location.origin || '') + String(window.location.pathname || ''); } catch (e) { /* no-op */ }
-  let h1 = 0x811c9dc5;
-  let h2 = 0x01000193;
-  for (let i = 0; i < src.length; i++) {
-    h1 = Math.imul(h1 ^ src.charCodeAt(i), 16777619) >>> 0;
-    h2 = Math.imul(h2 + src.charCodeAt(i) + 7, 2246822519) >>> 0;
-  }
-  return 'auraplan-' + h1.toString(36) + h2.toString(36);
+const SYNC_KEY = 'auraplan_sync_v22';
+const PASS_KEY = 'auraplan_pass_v22';
+const FICHIER = 'tableau.json';
+
+// Le dépôt se déduit de l'adresse : https://compte.github.io/mariage/ -> compte / mariage
+const detecterDepot = () => {
+  try {
+    const hote = String(window.location.hostname || '');
+    const m = /^([^.]+)\.github\.io$/i.exec(hote);
+    if (!m) return { owner: '', repo: '' };
+    const segments = String(window.location.pathname || '').split('/').filter(Boolean);
+    return { owner: m[1], repo: segments.length ? segments[0] : m[1] + '.github.io' };
+  } catch (e) { return { owner: '', repo: '' }; }
 };
 
-const dataToShared = (data) => {
-  const out = { meta: { columnLabels: data.columnLabels, event: data.event } };
-  COLLECTIONS.forEach((c) => {
-    const map = {};
-    (data[c] || []).forEach((item, index) => { map[item.id] = { ...item, __order: index }; });
-    out[c] = map;
-  });
-  return out;
+const idAppareil = () => {
+  try {
+    let v = window.localStorage.getItem('auraplan_appareil');
+    if (!v) { v = Math.random().toString(36).slice(2, 10); window.localStorage.setItem('auraplan_appareil', v); }
+    return v;
+  } catch (e) { return 'appareil'; }
 };
-
-const sharedToData = (doc) => {
-  const meta = doc.getMap('meta').get('value') || {};
-  const out = { columnLabels: meta.columnLabels, event: meta.event };
-  COLLECTIONS.forEach((c) => {
-    const list = [];
-    doc.getMap(c).forEach((value) => { if (value) list.push(value); });
-    list.sort((a, b) => (a.__order || 0) - (b.__order || 0));
-    out[c] = list.map((item) => { const copy = { ...item }; delete copy.__order; return copy; });
-  });
-  return normalizeData(out);
-};
-
-// Relais publics essayés dans l'ordre. Ils ne voient que du chiffré.
-const BROKERS = [
-  'wss://broker.emqx.io:8084/mqtt',
-  'wss://test.mosquitto.org:8081/mqtt',
-  'wss://broker.hivemq.com:8884/mqtt'
-];
 
 const subtle = () => {
   const c = (typeof window !== 'undefined' && window.crypto) || (typeof globalThis !== 'undefined' && globalThis.crypto);
   return c && c.subtle ? c.subtle : null;
 };
-const randomBytes = (n) => {
+const alea = (n) => {
   const c = (typeof window !== 'undefined' && window.crypto) || globalThis.crypto;
-  const out = new Uint8Array(n);
-  c.getRandomValues(out);
-  return out;
+  const out = new Uint8Array(n); c.getRandomValues(out); return out;
 };
-const toBase64 = (bytes) => {
-  let bin = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+const versBase64 = (bytes) => {
+  let bin = ''; const pas = 0x8000;
+  for (let i = 0; i < bytes.length; i += pas) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + pas));
   return window.btoa(bin);
 };
-const fromBase64 = (str) => Uint8Array.from(window.atob(str), (c) => c.charCodeAt(0));
+const depuisBase64 = (str) => Uint8Array.from(window.atob(String(str).replace(/\s/g, '')), (c) => c.charCodeAt(0));
 
-// La clé vient du mot de passe : le relais transporte des octets illisibles pour lui.
-const deriveKey = async (password, salt) => {
+const deriverCle = async (motDePasse, sel) => {
   const sub = subtle();
   if (!sub) throw new Error('chiffrement indisponible (page non sécurisée ?)');
-  const base = await sub.importKey('raw', new TextEncoder().encode(String(password)), 'PBKDF2', false, ['deriveKey']);
-  return sub.deriveKey(
-    { name: 'PBKDF2', salt: new TextEncoder().encode('auraplan:' + salt), iterations: 60000, hash: 'SHA-256' },
-    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
-  );
+  const base = await sub.importKey('raw', new TextEncoder().encode(String(motDePasse)), 'PBKDF2', false, ['deriveKey']);
+  return sub.deriveKey({ name: 'PBKDF2', salt: new TextEncoder().encode('auraplan:' + sel), iterations: 60000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+};
+const chiffrerTexte = async (cle, texte) => {
+  const iv = alea(12);
+  const ct = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv }, cle, new TextEncoder().encode(texte)));
+  const out = new Uint8Array(12 + ct.length); out.set(iv, 0); out.set(ct, 12);
+  return versBase64(out);
+};
+const dechiffrerTexte = async (cle, b64) => {
+  const brut = depuisBase64(b64);
+  const clair = await subtle().decrypt({ name: 'AES-GCM', iv: brut.subarray(0, 12) }, cle, brut.subarray(12));
+  return new TextDecoder().decode(clair);
 };
 
-const chiffrer = async (key, bytes) => {
-  const iv = randomBytes(12);
-  const ct = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv }, key, bytes));
-  const out = new Uint8Array(iv.length + ct.length);
-  out.set(iv, 0);
-  out.set(ct, iv.length);
-  return toBase64(out);
+const COLLECTIONS = ['projects', 'planning', 'notes'];
+
+// Représentation fichier : chaque fiche est une entrée repérée par son identifiant,
+// ce qui permet de fusionner deux versions sans rien écraser à l'aveugle.
+const versFichier = (data) => {
+  const out = { meta: { columnLabels: data.columnLabels, event: data.event } };
+  COLLECTIONS.forEach((c) => {
+    const m = {};
+    (data[c] || []).forEach((item, i) => { m[item.id] = { ...item, __ordre: i }; });
+    out[c] = m;
+  });
+  return out;
 };
 
-const dechiffrer = async (key, b64) => {
-  const raw = fromBase64(b64);
-  return new Uint8Array(await subtle().decrypt({ name: 'AES-GCM', iv: raw.subarray(0, 12) }, key, raw.subarray(12)));
+const depuisFichier = (brut) => {
+  const o = brut && typeof brut === 'object' ? brut : {};
+  const meta = o.meta || {};
+  const out = { columnLabels: meta.columnLabels, event: meta.event };
+  COLLECTIONS.forEach((c) => {
+    const liste = [];
+    Object.keys(o[c] || {}).forEach((id) => { if (o[c][id]) liste.push(o[c][id]); });
+    liste.sort((a, b) => (a.__ordre || 0) - (b.__ordre || 0));
+    out[c] = liste.map((x) => { const y = { ...x }; delete y.__ordre; return y; });
+  });
+  return normalizeData(out);
 };
 
-/* ------------------------------ Composants ------------------------------ */
+// Fusion : pour chaque fiche, la version la plus récemment modifiée gagne ;
+// une suppression ne revient pas si elle est postérieure à la dernière retouche.
+const fusionner = (local, distant) => {
+  const res = { contenu: { meta: null }, majs: { meta: 0 }, supprimes: {}, presence: {} };
+  const lm = (local && local.majs) || {}; const dm = (distant && distant.majs) || {};
+  const lc = (local && local.contenu) || {}; const dc = (distant && distant.contenu) || {};
+  const ls = (local && local.supprimes) || {}; const ds = (distant && distant.supprimes) || {};
+
+  res.contenu.meta = (dm.meta || 0) >= (lm.meta || 0) ? (dc.meta || lc.meta) : (lc.meta || dc.meta);
+  res.majs.meta = Math.max(lm.meta || 0, dm.meta || 0);
+
+  COLLECTIONS.forEach((c) => {
+    res.contenu[c] = {}; res.majs[c] = {}; res.supprimes[c] = {};
+    const suppr = {};
+    Object.keys(ls[c] || {}).forEach((id) => { suppr[id] = Math.max(suppr[id] || 0, ls[c][id]); });
+    Object.keys(ds[c] || {}).forEach((id) => { suppr[id] = Math.max(suppr[id] || 0, ds[c][id]); });
+    res.supprimes[c] = suppr;
+
+    const ids = new Set(Object.keys(lc[c] || {}).concat(Object.keys(dc[c] || {})));
+    ids.forEach((id) => {
+      const tl = (lm[c] && lm[c][id]) || 0;
+      const td = (dm[c] && dm[c][id]) || 0;
+      const gagnant = td >= tl ? ((dc[c] || {})[id] || (lc[c] || {})[id]) : ((lc[c] || {})[id] || (dc[c] || {})[id]);
+      const quand = Math.max(tl, td);
+      if (!gagnant) return;
+      if (suppr[id] && suppr[id] >= quand) return;      // supprimée après sa dernière retouche
+      res.contenu[c][id] = gagnant;
+      res.majs[c][id] = quand;
+    });
+  });
+
+  const pl = (local && local.presence) || {}; const pd = (distant && distant.presence) || {};
+  Object.keys(pl).concat(Object.keys(pd)).forEach((id) => {
+    const a = pl[id] || {}; const b = pd[id] || {};
+    res.presence[id] = (b.vu || 0) > (a.vu || 0) ? b : a;
+  });
+  return res;
+};
+
+/* ------------------------------ Composants ------------------------------ *//* ------------------------------ Composants ------------------------------ */
 function Avatar({ name, size }) {
   const s = size === 'sm' ? 'w-6 h-6 text-[9px]' : size === 'lg' ? 'w-10 h-10 text-xs' : 'w-8 h-8 text-[10px]';
   return <span className={`${s} ${avatarColor(name)} rounded-xl flex items-center justify-center font-extrabold text-white shrink-0 shadow-sm`} title={name}>{initials(name)}</span>;
@@ -1443,6 +1480,7 @@ function AuraPlanApp() {
   const [isDark, setIsDark] = useState(prefs.isDark !== false);
   const [activeTab, setActiveTab] = useState(['roadmap', 'kanban', 'planning', 'notes'].includes(prefs.tab) ? prefs.tab : 'roadmap');
   const [columnWidth, setColumnWidth] = useState(clamp(Number(prefs.columnWidth) || 110, 3, 240));
+  const [grouperPar, setGrouperPar] = useState(() => (prefs.grouperPar === 'assignee' || prefs.grouperPar === 'priority' ? prefs.grouperPar : 'status'));
 
   const [data, setData] = useState(loadData);
   const dataRef = useRef(data);
@@ -1527,6 +1565,56 @@ function AuraPlanApp() {
   const btnQuiet = `rounded-xl border border-transparent px-3 py-2 text-xs font-semibold transition ${T.muted} ${T.hover} focus:outline-none focus:ring-2 focus:ring-indigo-400`;
   const btnDanger = 'rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-300 transition hover:bg-rose-500/20';
 
+  const storedPass = useRef(loadJson(PASS_KEY, {})).current;
+  const [password, setPassword] = useState(typeof storedPass.value === 'string' ? storedPass.value : '');
+  const [unlocked, setUnlocked] = useState(!!(typeof storedPass.value === 'string' && storedPass.value) || storedPass.solo === true);
+
+  const [sync, setSync] = useState(() => {
+    const enregistre = loadJson(SYNC_KEY, {});
+    const auto = detecterDepot();
+    return {
+      actif: enregistre.actif !== false,
+      owner: enregistre.owner || auto.owner,
+      repo: enregistre.repo || auto.repo,
+      branch: enregistre.branch || 'main',
+      token: enregistre.token || '',
+      nom: enregistre.nom || ''
+    };
+  });
+
+  const monNom = useCallback(() => (sync.nom || 'Quelqu’un'), [sync.nom]);
+
+  const journaliser = useCallback((task, texte) => ({
+    ...task,
+    journal: [...(task.journal || []).slice(-29), { id: uid('a'), auteur: monNom(), texte, date: new Date().toISOString() }]
+  }), [monNom]);
+
+  const ajouterCommentaire = (taskId, texte) => {
+    const propre = String(texte || '').trim();
+    if (!propre) return;
+    commit((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => ({
+        ...p,
+        tasks: p.tasks.map((t) => (t.id === taskId
+          ? { ...t, commentaires: [...(t.commentaires || []), { id: uid('c'), auteur: monNom(), texte: propre, date: new Date().toISOString() }] }
+          : t))
+      }))
+    }));
+  };
+
+  const supprimerCommentaire = (taskId, commentId) => {
+    commit((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => ({
+        ...p,
+        tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, commentaires: (t.commentaires || []).filter((c) => c.id !== commentId) } : t))
+      }))
+    }));
+  };
+
+
+
   /* ------------------------------ États UI ------------------------------ */
   const [selectedProjectId, setSelectedProjectId] = useState(() => (SEED.projects[0] ? SEED.projects[0].id : null));
   const [openProjects, setOpenProjects] = useState(() => (prefs.openProjects && typeof prefs.openProjects === 'object' ? prefs.openProjects : {}));
@@ -1556,7 +1644,7 @@ function AuraPlanApp() {
     setEntryForm(null); setSplitEntry(null); setProjectForm(null); setIsConfigOpen(false); setIsHelpOpen(false);
   }, []);
 
-  useEffect(() => { saveJson(PREFS_KEY, { isDark, tab: activeTab, columnWidth, openProjects }); }, [openProjects, isDark, activeTab, columnWidth]);
+  useEffect(() => { saveJson(PREFS_KEY, { isDark, tab: activeTab, columnWidth, openProjects, grouperPar }); }, [openProjects, isDark, activeTab, columnWidth, grouperPar]);
 
   useEffect(() => {
     if (projects.length === 0) { setSelectedProjectId(null); return; }
@@ -1698,12 +1786,24 @@ function AuraPlanApp() {
     return allTasks.filter((t) => {
       if (assigneeFilter !== 'ALL' && t.assignee !== assigneeFilter) return false;
       if (!q) return true;
-      return (t.title + ' ' + t.assignee + ' ' + t.project.title).toLowerCase().includes(q);
+      return (t.ref + ' ' + t.title + ' ' + t.assignee + ' ' + t.project.title).toLowerCase().includes(q);
     }).sort((a, b) => a.rank - b.rank || a.title.localeCompare(b.title, 'fr'));
   }, [allTasks, search, assigneeFilter]);
 
+  const [ajoutRapide, setAjoutRapide] = useState(null);
+  const [commentaireDraft, setCommentaireDraft] = useState('');
   const [draggingTaskId, setDraggingTaskId] = useState(null);
   const [dropTarget, setDropTarget] = useState(null); // { status, index }
+
+  const colonnesKanban = useMemo(() => {
+    if (grouperPar === 'assignee') {
+      return collaborators.map((c) => ({ id: 'p:' + c, titre: c, filtre: (t) => t.assignee === c, avatar: c, barre: 'bg-indigo-500' }));
+    }
+    if (grouperPar === 'priority') {
+      return PRIORITIES.slice().reverse().map((pr) => ({ id: 'r:' + pr, titre: PRIORITY_META[pr].label, filtre: (t) => t.priority === pr, barre: 'bg-indigo-500' }));
+    }
+    return STATUSES.map((st) => ({ id: st, titre: statusLabel(st), filtre: (t) => t.status === st, statut: st, barre: STATUS_META[st].bar, point: STATUS_META[st].dot }));
+  }, [grouperPar, collaborators, statusLabel]);
 
   const moveTask = useCallback((taskId, status, index) => {
     let celebrateProjectId = null;
@@ -1781,14 +1881,16 @@ function AuraPlanApp() {
       projects: prev.projects.map((p) => {
         if (!p.tasks.some((t) => t.id === taskId)) return p;
         projectId = p.id;
-        return { ...p, tasks: p.tasks.map((t) => (t.id === taskId ? { ...t, status } : t)) };
+        return { ...p, tasks: p.tasks.map((t) => (t.id === taskId && t.status !== status
+          ? journaliser({ ...t, status }, `a déplacé la tâche vers « ${statusLabel(status)} »`)
+          : t)) };
       })
     }));
     if (status === 'DONE' && projectId) {
       const fresh = next.projects.find((p) => p.id === projectId);
       if (fresh && projectProgress(fresh) === 100) { triggerConfetti(); pushToast(`« ${fresh.title} » est bouclé à 100 %`, 'success'); }
     }
-  }, [commit, projectProgress, pushToast]);
+  }, [commit, projectProgress, pushToast, journaliser, statusLabel]);
 
   const setSubtaskStatus = useCallback((subId, status) => {
     let projectId = null;
@@ -1837,7 +1939,8 @@ function AuraPlanApp() {
       commit((prev) => ({ ...prev, projects: prev.projects.map((p) => ({ ...p, tasks: p.tasks.map((t) => (t.id === form.id ? { ...t, ...form, subtasks: t.subtasks } : t)) })) }), 'Tâche mise à jour');
     } else {
       const maxRank = allTasks.filter((t) => t.status === (form.status || 'TODO')).reduce((m, t) => Math.max(m, t.rank), -1);
-      const task = normalizeTask({ ...form, id: uid('t'), rank: maxRank + 1, subtasks: [] });
+      const task = normalizeTask({ ...form, id: uid('t'), rank: maxRank + 1, subtasks: [],
+        journal: [{ id: uid('a'), auteur: monNom(), texte: 'a créé la tâche', date: new Date().toISOString() }] });
       commit((prev) => ({ ...prev, projects: prev.projects.map((p) => (p.id === projectId ? { ...p, tasks: [...p.tasks, task] } : p)) }), 'Tâche créée');
     }
     setTaskForm(null); setEditingTask(null);
@@ -2200,335 +2303,218 @@ function AuraPlanApp() {
     return () => window.removeEventListener('keydown', onKey);
   }, [undo, closeAllModals, anyModalOpen, scrollToToday, fitAll, scrollTimelineBy]);
 
-  /* --------------------- Collaboration temps réel (P2P) --------------------- */
-  const storedPass = useRef(loadJson(PASS_KEY, {})).current;
-  const [password, setPassword] = useState(typeof storedPass.value === 'string' ? storedPass.value : '');
-  const [unlocked, setUnlocked] = useState(!!(typeof storedPass.value === 'string' && storedPass.value) || storedPass.solo === true);
+  /* --------------------------- Partage GitHub --------------------------- */
+  const [syncEtat, setSyncEtat] = useState({ etat: 'inactif', message: '', dernier: 0, participants: [], ecritures: 0, lectures: 0 });
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
 
-  const [collab, setCollab] = useState(() => {
-    const stored = loadJson(COLLAB_KEY, {});
-    return {
-      offline: !!stored.offline,
-      room: stored.room || roomFromLocation(),
-      name: stored.name || 'Moi',
-      signaling: Array.isArray(stored.signaling) && stored.signaling.length ? stored.signaling : DEFAULT_SIGNALING
-    };
-  });
-  const collabOn = unlocked && !collab.offline && !!password;
-  const [collabState, setCollabState] = useState({ status: 'off', peers: 0, names: [], error: '', voies: [] });
-  const [libReady, setLibReady] = useState(() => !!(window.YCollab || window.YCollabError));
+  useEffect(() => { saveJson(SYNC_KEY, sync); }, [sync]);
 
-  const docRef = useRef(null);
-  const applyingRemote = useRef(false);
-  const lastPushed = useRef('');
-  const amorcePrete = useRef(false);   // tant que faux, on n'écrase rien : on écoute d'abord
+  const majsRef = useRef(loadJson('auraplan_majs_v22', { meta: 0, projects: {}, planning: {}, notes: {} }));
+  const supprRef = useRef(loadJson('auraplan_suppr_v22', { projects: {}, planning: {}, notes: {} }));
+  const dernierFichier = useRef(null);           // { contenu, majs, supprimes, presence }
+  const shaRef = useRef(null);
+  const appliqueDistant = useRef(false);
+  const enCours = useRef(false);
+  const aEcrire = useRef(false);
+  const monAppareil = useRef(idAppareil()).current;
 
-  useEffect(() => { saveJson(COLLAB_KEY, collab); }, [collab]);
+  const partageActif = unlocked && sync.actif && !!password && !!sync.owner && !!sync.repo;
+  const peutEcrire = partageActif && !!sync.token;
 
+  // À chaque changement local, on note l'heure de retouche de chaque fiche :
+  // c'est ce qui permet de fusionner proprement avec la version du dépôt.
   useEffect(() => {
-    if (libReady) return;
-    const onReady = () => setLibReady(true);
-    window.addEventListener('ycollab-ready', onReady);
-    return () => window.removeEventListener('ycollab-ready', onReady);
-  }, [libReady]);
-
-  useEffect(() => {
-    if (!collabOn) { amorcePrete.current = true; setCollabState({ status: 'off', peers: 0, names: [], error: '', voies: [] }); return undefined; }
-    if (!libReady) { setCollabState((p) => ({ ...p, status: 'loading', voies: [] })); return undefined; }
-    if (!window.YCollab) {
-      setCollabState({ status: 'error', peers: 0, names: [], error: window.YCollabError || 'Bibliothèque indisponible', voies: [] });
-      return undefined;
-    }
-
-    amorcePrete.current = false;
-    lastPushed.current = '';
-    const { Y, voies, mqtt } = window.YCollab;
-    const doc = new Y.Doc();
-    docRef.current = { doc };
-    window.__auraplanDoc = doc;
-
-    let vivant = true;
-    const monId = Math.random().toString(36).slice(2, 10);
-    const pairs = new Map();                       // id -> { nom, vu, via }
-    const diffuseurs = [];                          // fonctions d'envoi, une par voie
-    const journal = { direct: { etat: voies && voies.length ? 'attente' : 'absent', envois: 0, recus: 0, detail: '' },
-                      relais: { etat: mqtt ? 'attente' : 'absent', envois: 0, recus: 0, detail: '' },
-                      memoire: '', memoireLe: 0 };
-
-    const rafraichir = () => {
-      if (!vivant) return;
-      const maintenant = Date.now();
-      Array.from(pairs.entries()).forEach(([id, p]) => { if (maintenant - p.vu > 20000) pairs.delete(id); });
-      const noms = Array.from(pairs.values()).map((p) => p.nom);
-      const connecte = journal.direct.etat === 'connecté' || journal.relais.etat === 'connecté';
-      setCollabState({
-        status: connecte ? 'connected'
-          : (journal.direct.etat === 'échec' && journal.relais.etat !== 'attente' && journal.relais.etat !== 'connexion') ? 'error'
-            : 'connecting',
-        peers: pairs.size,
-        names: [String(collab.name || 'Moi')].concat(noms),
-        error: journal.direct.detail && journal.relais.detail ? journal.relais.detail : '',
-        memoire: journal.memoire,
-        memoireLe: journal.memoireLe,
-        voies: [
-          { nom: 'Connexion directe', ...journal.direct },
-          { nom: 'Relais public', ...journal.relais }
-        ]
-      });
-    };
-
-    const pousserTout = () => {
-      const instantane = dataToShared(dataRef.current);
-      doc.transact(() => {
-        doc.getMap('meta').set('value', instantane.meta);
-        COLLECTIONS.forEach((c) => {
-          const ymap = doc.getMap(c);
-          Object.keys(instantane[c]).forEach((id) => ymap.set(id, instantane[c][id]));
-        });
-      }, 'local');
-      lastPushed.current = JSON.stringify(instantane);
-    };
-
-    const tirerTout = () => {
-      applyingRemote.current = true;
-      const suivant = sharedToData(doc);
-      dataRef.current = suivant;
-      setData(suivant);
-      lastPushed.current = JSON.stringify(dataToShared(suivant));
-      window.setTimeout(() => { applyingRemote.current = false; }, 0);
-    };
-
-    const appliquer = (octets) => {
-      try { Y.applyUpdate(doc, octets instanceof Uint8Array ? octets : new Uint8Array(octets), 'remote'); }
-      catch (e) { /* message illisible : mot de passe différent */ }
-    };
-
-    // Le tableau doit exister même quand personne n'est connecté : on garde une
-    // copie « retenue » sur le relais, que tout nouvel arrivant reçoit aussitôt.
-    let deposerMemoire = null;
-    let minuterieMemoire = null;
-    const planifierMemoire = () => {
-      if (!deposerMemoire) return;
-      if (minuterieMemoire) window.clearTimeout(minuterieMemoire);
-      minuterieMemoire = window.setTimeout(() => { try { deposerMemoire(); } catch (e) { /* no-op */ } }, 1200);
-    };
-
-    const surMaj = (update, origin) => {
-      planifierMemoire();
-      if (origin === 'remote') { tirerTout(); return; }
-      diffuseurs.forEach((envoyer) => { try { envoyer(update); } catch (e) { /* no-op */ } });
-    };
-    doc.on('update', surMaj);
-
-    // Au démarrage, on laisse d'abord parler la mémoire partagée : si un tableau
-    // existe déjà, il l'emporte sur le jeu de démonstration intact de cet appareil.
-    const seedIntact = JSON.stringify(dataToShared(dataRef.current)) === JSON.stringify(dataToShared(SEED));
-    let amorceFaite = false;
-    const amorcer = () => {
-      if (amorceFaite) return;
-      amorceFaite = true;
-      amorcePrete.current = true;
-      pousserTout();
-      planifierMemoire();
-    };
-    const memoireRecue = () => {
-      if (amorceFaite) return;
-      if (seedIntact) {
-        // Cet appareil n'a que la démonstration : le tableau du groupe l'emporte.
-        amorceFaite = true;
-        amorcePrete.current = true;
-        journal.memoire = 'récupérée';
-        rafraichir();
-      } else amorcer();
-    };
-    const attenteMemoire = window.setTimeout(() => { journal.memoire = journal.memoire || 'vierge'; amorcer(); rafraichir(); }, 2500);
-
-    /* ---------------- Voie 1 : connexion directe entre navigateurs ---------------- */
-    let salle = null;
-    const lancerDirect = (index) => {
-      if (!vivant || !voies || index >= voies.length) {
-        if (vivant && journal.direct.etat !== 'connecté') { journal.direct.etat = 'échec'; journal.direct.detail = 'aucun relais de mise en relation joignable'; rafraichir(); }
-        return;
-      }
-      journal.direct.etat = 'connexion';
-      rafraichir();
-      let courante = null;
-      try {
-        courante = voies[index].joinRoom({ appId: 'auraplan-studio', password: password || undefined }, collab.room,
-          { onJoinError: (d) => { journal.direct.detail = (d && d.error) || 'refus'; window.setTimeout(() => lancerDirect(index + 1), 0); } });
-      } catch (err) {
-        journal.direct.detail = String(err.message || err);
-        window.setTimeout(() => lancerDirect(index + 1), 0);
-        return;
-      }
-      salle = courante;
-      const aMaj = courante.makeAction('ymaj');
-      const aEtat = courante.makeAction('yetat');
-      const aNom = courante.makeAction('nom');
-      diffuseurs.push((u) => { journal.direct.envois++; aMaj.send(u); });
-      aMaj.onMessage = (d) => { journal.direct.recus++; memoireRecue(); appliquer(d); rafraichir(); };
-      aEtat.onMessage = (d) => { journal.direct.recus++; memoireRecue(); appliquer(d); rafraichir(); };
-      aNom.onMessage = (nom, ctx) => { pairs.set(ctx.peerId, { nom: String(nom || 'Invité'), vu: Date.now(), via: 'direct' }); rafraichir(); };
-      courante.onPeerJoin = (peerId) => {
-        pairs.set(peerId, { nom: 'Invité', vu: Date.now(), via: 'direct' });
-        try { aEtat.send(Y.encodeStateAsUpdate(doc), { target: peerId }); aNom.send(String(collab.name || 'Invité'), { target: peerId }); } catch (e) { /* no-op */ }
-        rafraichir();
-      };
-      courante.onPeerLeave = (peerId) => { pairs.delete(peerId); rafraichir(); };
-      journal.direct.etat = 'connecté';
-      journal.direct.detail = voies[index].nom;
-      rafraichir();
-    };
-    lancerDirect(0);
-
-    /* ---------------- Voie 2 : relais public, contenu chiffré ---------------- */
-    let client = null;
-    let horloge = null;
-    const lancerRelais = async () => {
-      if (!mqtt) { rafraichir(); return; }
-      let cle = null;
-      try { cle = await deriveKey(password, collab.room); }
-      catch (err) { journal.relais.etat = 'échec'; journal.relais.detail = String(err.message || err); rafraichir(); return; }
-      if (!vivant) return;
-
-      const base = 'auraplan/' + collab.room;
-      const essayer = (index) => {
-        if (!vivant) return;
-        if (index >= BROKERS.length) { journal.relais.etat = 'échec'; journal.relais.detail = 'aucun relais joignable'; rafraichir(); return; }
-        journal.relais.etat = 'connexion';
-        journal.relais.detail = BROKERS[index].replace(/^wss:\/\//, '').split(':')[0];
-        rafraichir();
-
-        let c = null;
-        try {
-          c = mqtt.connect(BROKERS[index], { clientId: 'auraplan_' + monId, connectTimeout: 8000, reconnectPeriod: 6000, clean: true, keepalive: 30 });
-        } catch (err) { window.setTimeout(() => essayer(index + 1), 0); return; }
-
-        let ouvert = false;
-        const secours = window.setTimeout(() => {
-          if (ouvert || !vivant) return;
-          try { c.end(true); } catch (e) { /* no-op */ }
-          essayer(index + 1);
-        }, 9000);
-
-        c.on('connect', () => {
-          ouvert = true;
-          window.clearTimeout(secours);
-          if (!vivant) { try { c.end(true); } catch (e) { /* no-op */ } return; }
-          client = c;
-          journal.relais.etat = 'connecté';
-          rafraichir();
-          c.subscribe(base + '/#', { qos: 0 });
-
-          const publier = async (suffixe, charge) => {
-            try { c.publish(base + '/' + suffixe, monId + '.' + (await chiffrer(cle, charge)), { qos: 0 }); }
-            catch (e) { /* no-op */ }
-          };
-          const direBonjour = () => publier('p', new TextEncoder().encode(JSON.stringify({ nom: collab.name || 'Invité' })));
-
-          diffuseurs.push((u) => { journal.relais.envois++; publier('u', u); });
-
-          // « retain » : le relais conserve ce message et le remet à tout nouvel arrivant.
-          deposerMemoire = async () => {
-            try {
-              c.publish(base + '/memoire', monId + '.' + (await chiffrer(cle, Y.encodeStateAsUpdate(doc))), { qos: 0, retain: true });
-              journal.memoire = 'à jour';
-              journal.memoireLe = Date.now();
-              rafraichir();
-            } catch (e) { /* no-op */ }
-          };
-
-          publier('e', Y.encodeStateAsUpdate(doc));
-          direBonjour();
-          if (amorceFaite) planifierMemoire();
-          horloge = window.setInterval(() => { direBonjour(); rafraichir(); }, 6000);
-        });
-
-        c.on('message', async (topic, charge) => {
-          const texte = String(charge);
-          const point = texte.indexOf('.');
-          if (point < 0) return;
-          const auteur = texte.slice(0, point);
-          if (auteur === monId) return;                       // notre propre écho
-          let octets = null;
-          try { octets = await dechiffrer(cle, texte.slice(point + 1)); }
-          catch (e) { journal.relais.detail = 'message illisible (mot de passe différent ?)'; rafraichir(); return; }
-          journal.relais.recus++;
-          if (topic.endsWith('/memoire')) {
-            journal.memoire = 'récupérée';
-            journal.memoireLe = Date.now();
-            memoireRecue();
-            appliquer(octets);
-            rafraichir();
-            return;
-          }
-          if (topic.endsWith('/p')) {
-            let nom = 'Invité';
-            try { nom = JSON.parse(new TextDecoder().decode(octets)).nom || 'Invité'; } catch (e) { /* no-op */ }
-            const connu = pairs.has(auteur);
-            pairs.set(auteur, { nom, vu: Date.now(), via: 'relais' });
-            if (!connu && client) {
-              try { client.publish(base + '/e', monId + '.' + (await chiffrer(cle, Y.encodeStateAsUpdate(doc))), { qos: 0 }); } catch (e) { /* no-op */ }
-            }
-          } else {
-            memoireRecue();
-            appliquer(octets);
-          }
-          rafraichir();
-        });
-
-        c.on('error', () => { if (!ouvert) { window.clearTimeout(secours); try { c.end(true); } catch (e) { /* no-op */ } essayer(index + 1); } });
-      };
-      essayer(0);
-    };
-    lancerRelais();
-
-    return () => {
-      vivant = false;
-      if (horloge) window.clearInterval(horloge);
-      if (minuterieMemoire) window.clearTimeout(minuterieMemoire);
-      window.clearTimeout(attenteMemoire);
-      try { doc.off('update', surMaj); } catch (e) { /* no-op */ }
-      try { if (salle) salle.leave(); } catch (e) { /* no-op */ }
-      try { if (client) client.end(true); } catch (e) { /* no-op */ }
-      try { doc.destroy(); } catch (e) { /* no-op */ }
-      docRef.current = null;
-      window.__auraplanDoc = null;
-    };
-  }, [collabOn, collab.room, collab.name, password, libReady, pushToast]);
-
-  // Publication différentielle : seules les fiches réellement modifiées partent sur le réseau.
-  useEffect(() => {
-    const ctx = docRef.current;
-    if (!ctx || applyingRemote.current || !amorcePrete.current) return;
-    const snapshot = dataToShared(data);
-    const serialized = JSON.stringify(snapshot);
-    if (serialized === lastPushed.current) return;
-    const previous = lastPushed.current ? JSON.parse(lastPushed.current) : { meta: null, projects: {}, planning: {}, notes: {} };
-    ctx.doc.transact(() => {
-      if (JSON.stringify(previous.meta) !== JSON.stringify(snapshot.meta)) ctx.doc.getMap('meta').set('value', snapshot.meta);
+    const avant = dernierFichier.current ? dernierFichier.current.contenu : null;
+    const apres = versFichier(data);
+    const maintenant = Date.now();
+    if (avant && !appliqueDistant.current) {
+      if (JSON.stringify(avant.meta) !== JSON.stringify(apres.meta)) majsRef.current.meta = maintenant;
       COLLECTIONS.forEach((c) => {
-        const ymap = ctx.doc.getMap(c);
-        const before = previous[c] || {};
-        Object.keys(snapshot[c]).forEach((id) => {
-          if (JSON.stringify(before[id]) !== JSON.stringify(snapshot[c][id])) ymap.set(id, snapshot[c][id]);
+        Object.keys(apres[c]).forEach((id) => {
+          if (JSON.stringify(avant[c][id]) !== JSON.stringify(apres[c][id])) {
+            majsRef.current[c][id] = maintenant;
+            delete supprRef.current[c][id];
+          }
         });
-        Object.keys(before).forEach((id) => { if (!snapshot[c][id]) ymap.delete(id); });
+        Object.keys(avant[c]).forEach((id) => {
+          if (!apres[c][id]) { supprRef.current[c][id] = maintenant; delete majsRef.current[c][id]; }
+        });
       });
-    }, 'local');
-    lastPushed.current = serialized;
+      aEcrire.current = true;
+    } else if (!avant) {
+      // Première ouverture : si l'appareil n'a que la démonstration, elle ne doit
+      // rien revendiquer, sinon elle écraserait le tableau déjà présent dans le dépôt.
+      const seulementDemo = JSON.stringify(versFichier(data)) === JSON.stringify(versFichier(SEED));
+      const depart = seulementDemo ? 0 : maintenant;
+      majsRef.current.meta = majsRef.current.meta || depart;
+      COLLECTIONS.forEach((c) => Object.keys(apres[c]).forEach((id) => {
+        majsRef.current[c][id] = majsRef.current[c][id] || depart;
+      }));
+    }
+    dernierFichier.current = { contenu: apres, majs: majsRef.current, supprimes: supprRef.current,
+      presence: (dernierFichier.current && dernierFichier.current.presence) || {} };
+    saveJson('auraplan_majs_v22', majsRef.current);
+    saveJson('auraplan_suppr_v22', supprRef.current);
+    appliqueDistant.current = false;
   }, [data]);
 
-  const shareUrl = useMemo(() => {
+  const cheminApi = useCallback(() => `https://api.github.com/repos/${sync.owner}/${sync.repo}/contents/${FICHIER}`, [sync.owner, sync.repo]);
+
+  const lireDistant = useCallback(async (cle) => {
+    // Avec un jeton : l'API, toujours fraîche. Sans jeton : le fichier brut, avec anti-cache.
+    if (sync.token) {
+      const r = await fetch(`${cheminApi()}?ref=${encodeURIComponent(sync.branch)}&t=${Date.now()}`, {
+        headers: { Authorization: `Bearer ${sync.token}`, Accept: 'application/vnd.github+json' }, cache: 'no-store'
+      });
+      if (r.status === 404) return { absent: true };
+      if (r.status === 401 || r.status === 403) throw new Error(r.status === 401 ? 'jeton refusé' : 'accès refusé (droits du jeton ?)');
+      if (!r.ok) throw new Error('lecture impossible (' + r.status + ')');
+      const j = await r.json();
+      shaRef.current = j.sha;
+      const texte = new TextDecoder().decode(depuisBase64(j.content || ''));
+      return { fichier: JSON.parse(texte) };
+    }
+    const url = `https://raw.githubusercontent.com/${sync.owner}/${sync.repo}/${sync.branch}/${FICHIER}?t=${Date.now()}`;
+    const r = await fetch(url, { cache: 'no-store' });
+    if (r.status === 404) return { absent: true };
+    if (!r.ok) throw new Error('lecture impossible (' + r.status + ')');
+    return { fichier: JSON.parse(await r.text()) };
+  }, [sync.token, sync.branch, sync.owner, sync.repo, cheminApi]);
+
+  const ecrireDistant = useCallback(async (charge, sha) => {
+    const r = await fetch(cheminApi(), {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${sync.token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: `Tableau mis à jour — ${new Date().toLocaleString('fr-FR')}`,
+        content: versBase64(new TextEncoder().encode(JSON.stringify(charge))),
+        branch: sync.branch,
+        ...(sha ? { sha } : {})
+      })
+    });
+    if (r.status === 409 || r.status === 422) return { conflit: true };
+    if (r.status === 401) throw new Error('jeton refusé');
+    if (r.status === 403) throw new Error('le jeton n’a pas le droit d’écrire');
+    if (r.status === 404) throw new Error('dépôt ou branche introuvable');
+    if (!r.ok) throw new Error('écriture impossible (' + r.status + ')');
+    const j = await r.json();
+    shaRef.current = j.content && j.content.sha;
+    return { ok: true };
+  }, [cheminApi, sync.token, sync.branch]);
+
+  const synchroniser = useCallback(async (forcerEcriture) => {
+    if (!partageActif || enCours.current) return;
+    enCours.current = true;
+    let cle = null;
+    try {
+      cle = await deriverCle(password, sync.owner + '/' + sync.repo);
+      setSyncEtat((p) => ({ ...p, etat: 'travail', message: '' }));
+
+      let distant = null;
+      const lu = await lireDistant(cle);
+      if (!lu.absent) {
+        const enveloppe = lu.fichier;
+        if (!enveloppe || enveloppe.format !== 'auraplan1') throw new Error('fichier non reconnu');
+        let clair = null;
+        try { clair = JSON.parse(await dechiffrerTexte(cle, enveloppe.charge)); }
+        catch (e) { throw new Error('mot de passe différent de celui du tableau'); }
+        distant = clair;
+      }
+
+      const local = dernierFichier.current;
+      const fusion = distant ? fusionner(local, distant) : { ...local, presence: (local && local.presence) || {} };
+
+      // Ce que le dépôt sait et que nous n'avions pas encore
+      const nouveauLocal = depuisFichier(fusion.contenu);
+      const changeLocalement = JSON.stringify(versFichier(dataRef.current)) !== JSON.stringify(versFichier(nouveauLocal));
+      if (changeLocalement) {
+        appliqueDistant.current = true;
+        majsRef.current = fusion.majs;
+        supprRef.current = fusion.supprimes;
+        dataRef.current = nouveauLocal;
+        setData(nouveauLocal);
+        dernierFichier.current = { contenu: versFichier(nouveauLocal), majs: fusion.majs, supprimes: fusion.supprimes, presence: fusion.presence };
+      } else {
+        dernierFichier.current = { contenu: versFichier(dataRef.current), majs: fusion.majs, supprimes: fusion.supprimes, presence: fusion.presence };
+        majsRef.current = fusion.majs;
+        supprRef.current = fusion.supprimes;
+      }
+
+      const participants = Object.keys(fusion.presence || {}).map((id) => ({ id, ...fusion.presence[id] }))
+        .filter((p) => p && p.nom).sort((a, b) => (b.vu || 0) - (a.vu || 0));
+
+      // Écriture : seulement si nous avons du neuf, ou si le dépôt est vide.
+      const distantDiffere = !distant || JSON.stringify(distant.contenu) !== JSON.stringify(fusion.contenu);
+      const doitEcrire = peutEcrire && (forcerEcriture || aEcrire.current || !distant || distantDiffere);
+
+      if (doitEcrire) {
+        const presence = { ...(fusion.presence || {}) };
+        presence[monAppareil] = { nom: sync.nom || collabNomParDefaut, vu: Date.now() };
+        const charge = {
+          format: 'auraplan1',
+          modifie: new Date().toISOString(),
+          charge: await chiffrerTexte(cle, JSON.stringify({
+            contenu: fusion.contenu, majs: fusion.majs, supprimes: fusion.supprimes, presence
+          }))
+        };
+        const res = await ecrireDistant(charge, shaRef.current);
+        if (res && res.conflit) {                       // quelqu'un a écrit entre-temps : on refait un tour
+          shaRef.current = null;
+          enCours.current = false;
+          window.setTimeout(() => synchroniser(true), 400);
+          return;
+        }
+        aEcrire.current = false;
+        dernierFichier.current.presence = presence;
+        setSyncEtat((p) => ({ ...p, etat: 'ok', message: '', dernier: Date.now(), participants, ecritures: p.ecritures + 1 }));
+      } else {
+        setSyncEtat((p) => ({ ...p, etat: peutEcrire ? 'ok' : 'lecture', message: '', dernier: Date.now(), participants, lectures: p.lectures + 1 }));
+      }
+    } catch (err) {
+      setSyncEtat((p) => ({ ...p, etat: 'erreur', message: String((err && err.message) || err) }));
+    } finally {
+      enCours.current = false;
+    }
+  }, [partageActif, peutEcrire, password, sync.owner, sync.repo, sync.nom, lireDistant, ecrireDistant, monAppareil]);
+
+  const collabNomParDefaut = 'Invité';
+
+  // Première synchronisation, puis relève régulière.
+  useEffect(() => {
+    if (!partageActif) { setSyncEtat((p) => ({ ...p, etat: 'inactif', message: '' })); return undefined; }
+    let vivant = true;
+    const tour = () => { if (vivant) synchroniser(false); };
+    tour();
+    const minuteur = window.setInterval(tour, sync.token ? 8000 : 25000);
+    const surRetour = () => { if (document.visibilityState === 'visible') tour(); };
+    document.addEventListener('visibilitychange', surRetour);
+    return () => { vivant = false; window.clearInterval(minuteur); document.removeEventListener('visibilitychange', surRetour); };
+  }, [partageActif, synchroniser, sync.token]);
+
+  // Envoi rapide après une modification locale.
+  const minuteurEnvoi = useRef(null);
+  useEffect(() => {
+    if (!peutEcrire) return undefined;
+    if (minuteurEnvoi.current) window.clearTimeout(minuteurEnvoi.current);
+    minuteurEnvoi.current = window.setTimeout(() => { if (aEcrire.current) synchroniser(true); }, 1500);
+    return () => { if (minuteurEnvoi.current) window.clearTimeout(minuteurEnvoi.current); };
+  }, [data, peutEcrire, synchroniser]);
+
+  const participantsActifs = useMemo(() => {
+    const limite = Date.now() - 5 * 60000;
+    return (syncEtat.participants || []).filter((p) => (p.vu || 0) > limite && p.id !== monAppareil);
+  }, [syncEtat.participants, monAppareil]);
+
+  const adresseTableau = useMemo(() => {
     try { return window.location.origin + window.location.pathname; } catch (e) { return ''; }
   }, []);
 
-  const copyShareUrl = async () => {
+  const copierAdresse = async () => {
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(shareUrl);
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(adresseTableau);
       else throw new Error('presse-papiers indisponible');
-      pushToast('Adresse du tableau copiée', 'success');
-    } catch (e) { pushToast('Copiez le lien affiché ci-dessous', 'info'); }
+      pushToast('Adresse copiée', 'success');
+    } catch (e) { pushToast('Copiez l’adresse affichée', 'info'); }
   };
 
   /* --------------------------- Import / export --------------------------- */
@@ -2551,46 +2537,6 @@ function AuraPlanApp() {
     reader.readAsText(file);
   };
 
-  /* -------------------------------- GitHub -------------------------------- */
-  const [gh, setGh] = useState(() => {
-    const s = loadJson(GH_KEY, {});
-    return { owner: s.owner || '', repo: s.repo || '', branch: s.branch || 'main', path: s.path || 'auraplan-data.json', token: s.token || '' };
-  });
-  const [ghStatus, setGhStatus] = useState('');
-  useEffect(() => { saveJson(GH_KEY, gh); }, [gh]);
-  const ghUrl = () => `https://api.github.com/repos/${gh.owner}/${gh.repo}/contents/${gh.path}`;
-  const ghHeaders = () => ({ Authorization: `Bearer ${gh.token}`, Accept: 'application/vnd.github+json' });
-
-  const ghPush = async () => {
-    if (!gh.owner || !gh.repo || !gh.token) { setGhStatus('Renseignez le propriétaire, le dépôt et le jeton.'); return; }
-    setGhStatus('Envoi en cours…');
-    try {
-      let sha = null;
-      const head = await fetch(`${ghUrl()}?ref=${encodeURIComponent(gh.branch)}`, { headers: ghHeaders() });
-      if (head.ok) sha = (await head.json()).sha;
-      const res = await fetch(ghUrl(), {
-        method: 'PUT',
-        headers: { ...ghHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: `AuraPlan — mise à jour ${new Date().toLocaleString('fr-FR')}`, content: b64encode(JSON.stringify(data, null, 2)), branch: gh.branch, ...(sha ? { sha } : {}) })
-      });
-      if (!res.ok) throw new Error(`GitHub a répondu ${res.status}`);
-      setGhStatus('Enregistré sur GitHub.');
-      pushToast('Données envoyées sur GitHub', 'success');
-    } catch (err) { setGhStatus(`Échec de l'envoi : ${err.message}`); }
-  };
-
-  const ghPull = async () => {
-    if (!gh.owner || !gh.repo) { setGhStatus('Renseignez au moins le propriétaire et le dépôt.'); return; }
-    setGhStatus('Récupération en cours…');
-    try {
-      const res = await fetch(`${ghUrl()}?ref=${encodeURIComponent(gh.branch)}`, { headers: gh.token ? ghHeaders() : { Accept: 'application/vnd.github+json' } });
-      if (!res.ok) throw new Error(`GitHub a répondu ${res.status}`);
-      const json = await res.json();
-      commit(normalizeData(JSON.parse(b64decode(json.content || ''))), 'Données récupérées depuis GitHub');
-      setGhStatus('Données chargées depuis GitHub.');
-    } catch (err) { setGhStatus(`Échec de la récupération : ${err.message}`); }
-  };
-
   /* ------------------------------ Écran d'accueil ------------------------------ */
   const [passDraft, setPassDraft] = useState('');
   const [rememberPass, setRememberPass] = useState(true);
@@ -2602,12 +2548,29 @@ function AuraPlanApp() {
     setUnlocked(true);
     if (rememberPass || solo) saveJson(PASS_KEY, solo ? { solo: true, value: '' } : { value: pass });
     else saveJson(PASS_KEY, {});
-    if (solo) setCollab((c) => ({ ...c, offline: true }));
+    if (solo) setSync((c) => ({ ...c, actif: false }));
   };
 
   const leaveBoard = () => {
     saveJson(PASS_KEY, {});
     setPassword(''); setPassDraft(''); setUnlocked(false);
+  };
+
+  const creerDepuisColonne = (colonne, titre) => {
+    const propre = String(titre || '').trim();
+    if (!propre) return;
+    const projet = selectedProject || projects[0];
+    if (!projet) { pushToast('Créez d’abord un projet', 'error'); return; }
+    const base = { title: propre, assignee: collaborators[0] || monNom(), startDate: TODAY_STR,
+      duration: 2, status: 'TODO', priority: 'MEDIUM', notes: '' };
+    if (colonne.statut) base.status = colonne.statut;
+    if (grouperPar === 'assignee') base.assignee = colonne.titre;
+    if (grouperPar === 'priority') base.priority = PRIORITIES.find((pr) => PRIORITY_META[pr].label === colonne.titre) || 'MEDIUM';
+    const maxRank = allTasks.filter((t) => t.status === base.status).reduce((m, t) => Math.max(m, t.rank), -1);
+    const tache = normalizeTask({ ...base, id: uid('t'), rank: maxRank + 1, subtasks: [],
+      journal: [{ id: uid('a'), auteur: monNom(), texte: 'a créé la tâche', date: new Date().toISOString() }] });
+    commit((prev) => ({ ...prev, projects: prev.projects.map((p) => (p.id === projet.id ? { ...p, tasks: [...p.tasks, tache] } : p)) }));
+    setAjoutRapide({ colonne: colonne.id, texte: '' });
   };
 
   /* --------------------------------- Rendu --------------------------------- */
@@ -2726,9 +2689,9 @@ function AuraPlanApp() {
           </div>
 
           <form onSubmit={(e) => { e.preventDefault(); enterBoard(passDraft, false); }}>
-            <Field T={T} label="Votre prénom" hint="Pour que les autres sachent qui est en ligne.">
-              <input className={inputCls} value={collab.name}
-                onChange={(e) => setCollab({ ...collab, name: e.target.value.slice(0, 40) })} placeholder="Ex. Magalie" />
+            <Field T={T} label="Votre prénom" hint="Pour que les autres sachent qui a travaillé sur le tableau.">
+              <input className={inputCls} value={sync.nom}
+                onChange={(e) => setSync({ ...sync, nom: e.target.value.slice(0, 40) })} placeholder="Ex. Magalie" />
             </Field>
             <div className="mt-3" />
             <Field T={T} label="Mot de passe partagé" hint="Le même pour tout le monde : il ouvre le tableau et chiffre les échanges.">
@@ -2746,15 +2709,15 @@ function AuraPlanApp() {
 
           {!pageSecurisee() ? (
             <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-amber-200">
-              Cette page n'est pas ouverte en <strong>https</strong>. Le travail à plusieurs ne peut pas fonctionner ainsi :
-              publiez le fichier (GitHub Pages) et ouvrez l'adresse `https://…` plutôt que le fichier depuis votre disque.
-              Vous pouvez tout de même travailler seul.
+              Cette page n'est pas ouverte en <strong>https</strong>. Le partage a besoin du chiffrement du navigateur,
+              qui n'est disponible qu'en https : ouvrez l'adresse <span className="font-mono">https://…github.io/…</span>
+              plutôt que le fichier depuis votre disque. Vous pouvez tout de même travailler seul.
             </div>
           ) : null}
 
           <p className={`mt-5 border-t pt-4 text-[10px] leading-relaxed ${T.border} ${T.faint}`}>
-            Tous ceux qui ouvrent cette adresse avec le même mot de passe voient le tableau évoluer en direct.
-            Rien n'est enregistré sur un serveur : les navigateurs se parlent directement.
+            Le tableau est conservé, chiffré, dans votre dépôt GitHub. Toute personne ayant cette adresse
+            et ce mot de passe le retrouve, depuis n'importe quel ordinateur.
           </p>
         </div>
       </div>
@@ -2793,28 +2756,39 @@ function AuraPlanApp() {
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher…"
             className={`hidden w-44 rounded-xl border px-3 py-2 text-xs outline-none focus:border-indigo-500 md:block ${inputCls}`} />
           {activeTab !== 'notes' ? (
-            <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className={`hidden w-36 lg:block ${inputCls}`}>
+            <>
+            <button type="button"
+              onClick={() => setAssigneeFilter(assigneeFilter === (sync.nom || '') ? 'ALL' : (sync.nom || 'ALL'))}
+              title="N'afficher que ce qui m'est assigné"
+              className={`hidden shrink-0 rounded-xl px-2.5 py-2 text-xs font-bold transition lg:block
+                ${assigneeFilter !== 'ALL' && assigneeFilter === sync.nom ? 'border border-indigo-500 bg-indigo-600 text-white' : btnSecondary}`}>
+              Mes tâches
+            </button>
+            <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className={`hidden w-32 lg:block ${inputCls}`}>
               <option value="ALL">Toute l'équipe</option>
               {collaborators.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
+            </>
           ) : null}
           <button type="button" onClick={() => setIsDark(!isDark)} className={btnQuiet} title="Changer de thème">{isDark ? '☀' : '☾'}</button>
           <button type="button" onClick={() => setIsHelpOpen(true)} className={btnQuiet} title="Aide">?</button>
           <button type="button" onClick={() => setIsConfigOpen(true)} className={btnSecondary}
-            title={collabState.status === 'connected' ? `En direct avec ${collabState.names.join(', ')}`
-              : collabState.status === 'error' ? `Collaboration indisponible : ${collabState.error}`
-                : collabState.status === 'off' ? 'Hors ligne — partage et sauvegardes' : 'Connexion en cours…'}>
+            title={syncEtat.etat === 'erreur' ? `Partage en erreur : ${syncEtat.message}`
+              : syncEtat.etat === 'lecture' ? 'Lecture seule — ajoutez un jeton pour enregistrer'
+                : syncEtat.etat === 'ok' ? (participantsActifs.length ? `Avec ${participantsActifs.map((p) => p.nom).join(', ')}` : 'Tableau partagé et enregistré')
+                  : syncEtat.etat === 'travail' ? 'Synchronisation…' : 'Partage inactif'}>
             <span className="flex items-center gap-1.5">
-              <span className={`h-2 w-2 rounded-full ${collabState.status === 'connected' ? 'bg-emerald-400 animate-pulse'
-                : collabState.status === 'connecting' || collabState.status === 'loading' ? 'bg-amber-400 animate-pulse'
-                  : collabState.status === 'error' ? 'bg-rose-500' : 'bg-slate-500'}`} />
-              {collabState.peers > 0 ? (
+              <span className={`h-2 w-2 rounded-full ${syncEtat.etat === 'ok' ? 'bg-emerald-400'
+                : syncEtat.etat === 'travail' ? 'bg-amber-400 animate-pulse'
+                  : syncEtat.etat === 'lecture' ? 'bg-sky-400'
+                    : syncEtat.etat === 'erreur' ? 'bg-rose-500' : 'bg-slate-500'}`} />
+              {participantsActifs.length ? (
                 <span className="flex -space-x-1.5">
-                  {collabState.names.slice(0, 4).map((n, i) => <Avatar key={n + i} name={n} size="sm" />)}
+                  {participantsActifs.slice(0, 4).map((p) => <Avatar key={p.id} name={p.nom} size="sm" />)}
                 </span>
               ) : null}
-              {collabState.status === 'connected' ? (collabState.peers > 0 ? `${collabState.peers + 1}` : 'En direct')
-                : collabState.status === 'off' ? 'Partager' : 'Connexion…'}
+              {syncEtat.etat === 'ok' ? 'Partagé' : syncEtat.etat === 'lecture' ? 'Lecture seule'
+                : syncEtat.etat === 'erreur' ? 'À régler' : syncEtat.etat === 'travail' ? '…' : 'Partager'}
             </span>
           </button>
           <button type="button" className={btnPrimary}
@@ -2850,7 +2824,18 @@ function AuraPlanApp() {
               </>
             ) : null}
             {activeTab === 'kanban' ? (
-              <span className={`text-[11px] ${T.faint}`}>Glissez les cartes pour changer de colonne <em>et</em> pour les réordonner dans la colonne</span>
+              <>
+                <span className={`text-[11px] font-semibold ${T.faint}`}>Grouper par</span>
+                <div className={`flex rounded-xl border p-0.5 ${T.raise}`}>
+                  {[{ id: 'status', label: 'Statut' }, { id: 'assignee', label: 'Personne' }, { id: 'priority', label: 'Priorité' }].map((opt) => (
+                    <button key={opt.id} type="button" onClick={() => setGrouperPar(opt.id)}
+                      className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${grouperPar === opt.id ? 'bg-indigo-600 text-white' : `${T.muted} hover:text-indigo-400`}`}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <span className={`ml-1 hidden text-[11px] 2xl:inline ${T.faint}`}>Glissez les cartes pour les déplacer et les réordonner</span>
+              </>
             ) : null}
           </div>
 
@@ -3005,9 +2990,14 @@ function AuraPlanApp() {
                           const tStart = diffDays(parseDate(task.startDate), timelineStart);
                           const tGeo = barGeometry(tStart, task.duration, tDragging);
                           const doneSub = task.subtasks.filter((s) => s.status === 'DONE').length;
+                          // Cohérence des préalables, façon OpenProject : on signale sans rien bloquer.
+                          const incoherente = (task.bloquePar || []).map((id) => allTasks.find((x) => x.id === id))
+                            .filter(Boolean)
+                            .find((b) => addDays(parseDate(b.startDate), Math.ceil(b.duration)) > parseDate(task.startDate));
                           return (
                             <React.Fragment key={task.id}>
-                              <div className={`flex h-10 border-b ${T.border} ${isDark ? 'bg-white/[0.015]' : 'bg-slate-50/60'}`}>
+                              <div className={`flex h-10 border-b ${T.border} ${isDark ? 'bg-white/[0.015]' : 'bg-slate-50/60'}`}
+                                title={incoherente ? `Démarre avant la fin de ${incoherente.ref} · ${incoherente.title}` : undefined}>
                                 <div style={{ width: `${nameColWidth}px` }} data-nopan className={`sticky left-0 z-20 flex items-center gap-2 border-r pl-6 pr-3 ${T.panel} shadow-[inset_14px_0_0_-12px_rgba(99,102,241,.7)]`}>
                                   {isLeftPanelOpen ? (
                                     <>
@@ -3026,6 +3016,7 @@ function AuraPlanApp() {
                                         className="h-3.5 w-3.5 shrink-0 rounded accent-emerald-500" aria-label={`Valider ${task.title}`} />
                                       <button type="button" onClick={() => setEditingTask({ ...task, projectId: proj.id })}
                                         className={`min-w-0 flex-1 truncate text-left text-[11px] ${task.status === 'DONE' ? 'text-slate-500 line-through' : 'font-bold'}`}>{task.title}</button>
+                                      {incoherente ? <span className="shrink-0 text-[11px] text-amber-400" title={`Démarre avant la fin de ${incoherente.ref}`}>⚠</span> : null}
                                       {task.subtasks.length ? <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] ${T.raise} ${T.muted}`}>{doneSub}/{task.subtasks.length}</span> : null}
                                       <button type="button" title="Ajouter une sous-tâche"
                                         onClick={() => setSubtaskForm({ id: null, taskId: task.id, projectId: proj.id, title: '', assignee: task.assignee, status: 'TODO', startDate: task.startDate, duration: 1, notes: '' })}
@@ -3152,74 +3143,108 @@ function AuraPlanApp() {
         {/* ============================== KANBAN ============================== */}
         {activeTab === 'kanban' ? (
           <div className={`flex-1 overflow-auto p-5 ${isDark ? 'bg-[#05080F]' : 'bg-[#EEF1F6]'}`}>
-            <div className="grid h-full min-w-[1040px] grid-cols-4 gap-4">
-              {STATUSES.map((status) => {
-                const meta = STATUS_META[status];
-                const colTasks = kanbanTasks.filter((t) => t.status === status);
-                const isOver = dropTarget && dropTarget.status === status;
-                const placeholder = (i) => (isOver && dropTarget.index === i && draggingTaskId
+            <div className="flex h-full gap-4" style={{ minWidth: `${colonnesKanban.length * 268}px` }}>
+              {colonnesKanban.map((colonne) => {
+                const colTasks = kanbanTasks.filter(colonne.filtre);
+                const isOver = dropTarget && dropTarget.status === colonne.id;
+                const repere = (i) => (isOver && dropTarget.index === i && draggingTaskId
                   ? <div key={`ph-${i}`} className="h-1.5 rounded-full bg-indigo-500 shadow-[0_0_12px_2px_rgba(99,102,241,.5)]" /> : null);
+                const enAjout = ajoutRapide && ajoutRapide.colonne === colonne.id;
                 return (
-                  <section key={status}
-                    onDragOver={(e) => handleColumnDragOver(e, status, colTasks.length)}
-                    onDrop={(e) => handleColumnDrop(e, status, colTasks.length)}
-                    className={`flex h-full flex-col overflow-hidden rounded-2xl border transition ${T.panel} ${isOver ? 'border-indigo-500 ring-2 ring-indigo-500/25' : ''}`}>
+                  <section key={colonne.id}
+                    onDragOver={(e) => handleColumnDragOver(e, colonne.id, colTasks.length)}
+                    onDrop={(e) => handleColumnDrop(e, colonne.id, colTasks.length)}
+                    className={`flex h-full w-[258px] shrink-0 flex-col overflow-hidden rounded-2xl border transition ${T.panel} ${isOver ? 'border-indigo-500 ring-2 ring-indigo-500/25' : ''}`}>
+
                     <div className={`flex items-center justify-between gap-2 border-b px-3 py-2.5 ${T.border} ${T.inset}`}>
-                      {editingColumn === status ? (
+                      {editingColumn === colonne.id ? (
                         <input autoFocus value={columnDraft}
                           onChange={(e) => setColumnDraft(e.target.value)}
-                          onBlur={() => saveColumnLabel(status)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') saveColumnLabel(status); if (e.key === 'Escape') setEditingColumn(null); }}
+                          onBlur={() => saveColumnLabel(colonne.statut)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') saveColumnLabel(colonne.statut); if (e.key === 'Escape') setEditingColumn(null); }}
                           className={`min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs font-extrabold outline-none focus:border-indigo-500 ${isDark ? 'bg-[#0A1220] border-[#28344F] text-slate-100' : 'bg-white border-slate-300 text-slate-900'}`} />
                       ) : (
                         <h3 className="flex min-w-0 items-center gap-2 text-xs font-extrabold">
-                          <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
-                          <button type="button" title="Cliquez pour renommer la colonne"
-                            onClick={() => { setColumnDraft(statusLabel(status)); setEditingColumn(status); }}
-                            className="truncate rounded px-0.5 hover:text-indigo-400">{statusLabel(status)}</button>
+                          {colonne.avatar ? <Avatar name={colonne.avatar} size="sm" /> : <span className={`h-2 w-2 shrink-0 rounded-full ${colonne.point || 'bg-slate-400'}`} />}
+                          {colonne.statut ? (
+                            <button type="button" title="Cliquez pour renommer la colonne"
+                              onClick={() => { setColumnDraft(colonne.titre); setEditingColumn(colonne.id); }}
+                              className="truncate rounded px-0.5 hover:text-indigo-400">{colonne.titre}</button>
+                          ) : <span className="truncate">{colonne.titre}</span>}
                           <span className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] ${T.raise} ${T.muted}`}>{colTasks.length}</span>
                         </h3>
                       )}
-                      <button type="button" title={`Ajouter une tâche dans « ${statusLabel(status)} »`}
-                        onClick={() => setTaskForm({ id: null, projectId: selectedProjectId || (projects[0] && projects[0].id) || '', title: '', assignee: collaborators[0] || 'Moi', startDate: TODAY_STR, duration: 2, status, priority: 'MEDIUM', notes: '' })}
-                        className={`rounded-lg px-2 py-1 text-sm font-bold ${T.raise} ${T.muted} hover:text-indigo-400`}>+</button>
+                      <button type="button" title={`Ajouter dans « ${colonne.titre} »`}
+                        onClick={() => setAjoutRapide({ colonne: colonne.id, texte: '' })}
+                        className={`shrink-0 rounded-lg px-2 py-1 text-sm font-bold ${T.raise} ${T.muted} hover:text-indigo-400`}>+</button>
                     </div>
-                    <div className={`h-1 ${meta.bar}`} />
+                    <div className={`h-1 ${colonne.barre}`} />
+
                     <div className="flex-1 space-y-2 overflow-y-auto p-3">
-                      {colTasks.map((task, index) => (
-                        <React.Fragment key={task.id}>
-                          {placeholder(index)}
-                          <article draggable
-                            onDragStart={(e) => handleCardDragStart(e, task.id)}
-                            onDragEnd={handleDragEnd}
-                            onDragOver={(e) => handleCardDragOver(e, status, index)}
-                            onClick={() => setEditingTask({ ...task, projectId: task.project.id })}
-                            className={`cursor-grab rounded-xl border p-3 shadow-sm transition active:cursor-grabbing ${T.raise} hover:border-indigo-500/50 ${draggingTaskId === task.id ? 'opacity-40' : ''}`}>
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <span className={`truncate rounded bg-gradient-to-r px-2 py-0.5 text-[9px] font-bold text-white ${task.project.color}`}>{task.project.title}</span>
-                              <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold ${PRIORITY_META[task.priority].cls}`}>{PRIORITY_META[task.priority].icon}</span>
-                            </div>
-                            <h4 className="mb-2 text-xs font-bold leading-snug">{task.title}</h4>
-                            {task.subtasks.length ? (
-                              <div className={`mb-2 h-1.5 w-full overflow-hidden rounded-full ${T.inset}`}>
-                                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round(taskProgress(task) * 100)}%` }} />
+                      {colTasks.map((task, index) => {
+                        const bloqueurs = (task.bloquePar || []).map((id) => allTasks.find((x) => x.id === id)).filter(Boolean);
+                        const enAttente = bloqueurs.filter((b) => b.status !== 'DONE');
+                        return (
+                          <React.Fragment key={task.id}>
+                            {repere(index)}
+                            <article draggable
+                              onDragStart={(e) => handleCardDragStart(e, task.id)}
+                              onDragEnd={handleDragEnd}
+                              onDragOver={(e) => handleCardDragOver(e, colonne.id, index)}
+                              onClick={() => setEditingTask({ ...task, projectId: task.project.id })}
+                              className={`cursor-grab rounded-xl border p-3 shadow-sm transition active:cursor-grabbing ${T.raise} hover:border-indigo-500/50 ${draggingTaskId === task.id ? 'opacity-40' : ''}`}>
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <span className={`truncate rounded bg-gradient-to-r px-2 py-0.5 text-[9px] font-bold text-white ${task.project.color}`}>{task.project.title}</span>
+                                <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold ${PRIORITY_META[task.priority].cls}`}>{PRIORITY_META[task.priority].icon}</span>
                               </div>
-                            ) : null}
-                            <div className={`flex items-center justify-between border-t pt-2 text-[10px] ${T.border} ${T.faint}`}>
-                              <span className="flex items-center gap-1.5"><Avatar name={task.assignee} size="sm" />{task.assignee}</span>
-                              <span className="font-mono">{task.subtasks.length ? `${task.subtasks.filter((s) => s.status === 'DONE').length}/${task.subtasks.length}` : formatDayShort(task.startDate)}</span>
-                            </div>
-                          </article>
-                        </React.Fragment>
-                      ))}
-                      {placeholder(colTasks.length)}
-                      {colTasks.length === 0 ? (
-                        <button type="button"
-                          onClick={() => setTaskForm({ id: null, projectId: selectedProjectId || (projects[0] && projects[0].id) || '', title: '', assignee: collaborators[0] || 'Moi', startDate: TODAY_STR, duration: 2, status, priority: 'MEDIUM', notes: '' })}
-                          className={`w-full rounded-xl border border-dashed py-8 text-center text-[11px] ${T.border} ${T.faint} hover:border-indigo-500/50 hover:text-indigo-400`}>
+                              <h4 className="mb-2 text-xs font-bold leading-snug">{task.title}</h4>
+                              {task.subtasks.length ? (
+                                <div className={`mb-2 h-1.5 w-full overflow-hidden rounded-full ${T.inset}`}>
+                                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round(taskProgress(task) * 100)}%` }} />
+                                </div>
+                              ) : null}
+                              {enAttente.length ? (
+                                <div className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
+                                  En attente de {enAttente.map((b) => b.ref).join(', ')}
+                                </div>
+                              ) : null}
+                              <div className={`flex items-center justify-between border-t pt-2 text-[10px] ${T.border} ${T.faint}`}>
+                                <span className="flex items-center gap-1.5">
+                                  <Avatar name={task.assignee} size="sm" />
+                                  <span className="font-mono font-bold">{task.ref}</span>
+                                </span>
+                                <span className="flex items-center gap-2 font-mono">
+                                  {(task.commentaires || []).length ? <span title="commentaires">{(task.commentaires || []).length} 💬</span> : null}
+                                  {task.subtasks.length ? `${task.subtasks.filter((sb) => sb.status === 'DONE').length}/${task.subtasks.length}` : formatDayShort(task.startDate)}
+                                </span>
+                              </div>
+                            </article>
+                          </React.Fragment>
+                        );
+                      })}
+                      {repere(colTasks.length)}
+
+                      {enAjout ? (
+                        <div className={`rounded-xl border p-2 ${T.border} ${T.raise}`}>
+                          <textarea autoFocus rows="2" value={ajoutRapide.texte}
+                            onChange={(e) => setAjoutRapide({ ...ajoutRapide, texte: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); creerDepuisColonne(colonne, ajoutRapide.texte); }
+                              if (e.key === 'Escape') setAjoutRapide(null);
+                            }}
+                            placeholder="Titre de la tâche, puis Entrée"
+                            className={`w-full resize-none rounded-lg border px-2 py-1.5 text-xs outline-none focus:border-indigo-500 ${isDark ? 'bg-[#0A1220] border-[#28344F] text-slate-100' : 'bg-white border-slate-300 text-slate-900'}`} />
+                          <div className="mt-1.5 flex items-center justify-between">
+                            <span className={`text-[10px] ${T.faint}`}>Entrée pour ajouter · Échap pour fermer</span>
+                            <button type="button" className="text-[11px] font-bold text-indigo-400" onClick={() => creerDepuisColonne(colonne, ajoutRapide.texte)}>Ajouter</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={() => setAjoutRapide({ colonne: colonne.id, texte: '' })}
+                          className={`w-full rounded-xl border border-dashed py-2.5 text-center text-[11px] ${T.border} ${T.faint} hover:border-indigo-500/50 hover:text-indigo-400`}>
                           {isOver ? 'Déposez ici' : '+ Ajouter une tâche'}
                         </button>
-                      ) : null}
+                      )}
                     </div>
                   </section>
                 );
@@ -3615,7 +3640,8 @@ function AuraPlanApp() {
         const parent = form.id ? projects.find((p) => p.tasks.some((t) => t.id === form.id)) : null;
         const liveTask = parent ? parent.tasks.find((t) => t.id === form.id) : null;
         return (
-          <Modal T={T} size="lg" title={form.id ? 'Tâche' : 'Nouvelle tâche'} subtitle={parent ? parent.title : null}
+          <Modal T={T} size="lg" title={form.id ? `${form.ref || 'Tâche'} · ${form.title}` : 'Nouvelle tâche'}
+            subtitle={parent ? `${parent.title}${liveTask ? ` · créée ${liveTask.journal && liveTask.journal[0] ? new Date(liveTask.journal[0].date).toLocaleDateString('fr-FR') : ''}` : ''}` : null}
             onClose={() => { setTaskForm(null); setEditingTask(null); }}
             footer={<>
               {form.id ? <button type="button" className="text-xs font-bold text-rose-400" onClick={() => deleteTask(form.id)}>Supprimer</button> : <span />}
@@ -3681,6 +3707,92 @@ function AuraPlanApp() {
               <Field T={T} label="Notes rapides" hint="Pour les longs comparatifs, préférez l'onglet Notes.">
                 <textarea rows="3" className={inputCls} value={form.notes || ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
               </Field>
+
+              {liveTask ? (
+                <Field T={T} label="Ne peut pas démarrer avant" hint="Signale les tâches à faire d'abord.">
+                  <select className={inputCls} value=""
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      if (!id) return;
+                      setForm({ ...form, bloquePar: Array.from(new Set([...(form.bloquePar || []), id])) });
+                    }}>
+                    <option value="">Ajouter une tâche préalable…</option>
+                    {allTasks.filter((t) => t.id !== form.id && !(form.bloquePar || []).includes(t.id))
+                      .map((t) => <option key={t.id} value={t.id}>{t.ref} · {t.title}</option>)}
+                  </select>
+                  {(form.bloquePar || []).length ? (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {(form.bloquePar || []).map((id) => {
+                        const t = allTasks.find((x) => x.id === id);
+                        if (!t) return null;
+                        return (
+                          <span key={id} className={`flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[10px] font-bold ${t.status === 'DONE' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/40 bg-amber-500/10 text-amber-300'}`}>
+                            {t.status === 'DONE' ? '✓' : '⏳'} {t.ref} {t.title.slice(0, 24)}
+                            <button type="button" className="opacity-60 hover:opacity-100"
+                              onClick={() => setForm({ ...form, bloquePar: (form.bloquePar || []).filter((x) => x !== id) })}>✕</button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </Field>
+              ) : null}
+
+              {liveTask ? (
+                <div className={`overflow-hidden rounded-xl border ${T.raise}`}>
+                  <div className={`flex items-center gap-3 border-b px-3 py-2 ${T.border} ${T.inset}`}>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wide">Échanges</span>
+                    <span className={`font-mono text-[10px] ${T.faint}`}>{(liveTask.commentaires || []).length} commentaire(s)</span>
+                  </div>
+
+                  <div className="max-h-52 space-y-2 overflow-y-auto p-3">
+                    {(liveTask.commentaires || []).length === 0 ? (
+                      <p className={`text-[11px] ${T.faint}`}>Aucun échange. Utilisez cet espace pour vous répondre à propos de cette tâche.</p>
+                    ) : null}
+                    {(liveTask.commentaires || []).map((c) => (
+                      <div key={c.id} className="flex gap-2">
+                        <Avatar name={c.auteur} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-[11px] font-bold">{c.auteur}</span>
+                            <span className={`font-mono text-[9px] ${T.faint}`}>{new Date(c.date).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                            <button type="button" className={`ml-auto text-[10px] ${T.faint} hover:text-rose-400`} onClick={() => supprimerCommentaire(liveTask.id, c.id)}>✕</button>
+                          </div>
+                          <p className="whitespace-pre-wrap break-words text-[11px] leading-relaxed">{c.texte}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className={`flex items-start gap-2 border-t p-2.5 ${T.border}`}>
+                    <Avatar name={sync.nom || 'Moi'} size="sm" />
+                    <textarea rows="2" value={commentaireDraft}
+                      onChange={(e) => setCommentaireDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { ajouterCommentaire(liveTask.id, commentaireDraft); setCommentaireDraft(''); }
+                      }}
+                      placeholder="Écrire un message… (Ctrl+Entrée pour envoyer)"
+                      className={`min-w-0 flex-1 resize-none rounded-lg border px-2 py-1.5 text-[11px] outline-none focus:border-indigo-500 ${isDark ? 'bg-[#0A1220] border-[#28344F] text-slate-100' : 'bg-white border-slate-300 text-slate-900'}`} />
+                    <button type="button" className={btnSecondary}
+                      onClick={() => { ajouterCommentaire(liveTask.id, commentaireDraft); setCommentaireDraft(''); }}>Envoyer</button>
+                  </div>
+
+                  {(liveTask.journal || []).length ? (
+                    <div className={`border-t px-3 py-2 ${T.border} ${T.inset}`}>
+                      <div className={`mb-1 text-[10px] font-bold uppercase tracking-wide ${T.faint}`}>Historique</div>
+                      <div className="max-h-24 space-y-0.5 overflow-y-auto">
+                        {(liveTask.journal || []).slice().reverse().slice(0, 12).map((ev) => (
+                          <div key={ev.id} className={`flex items-baseline gap-1.5 text-[10px] ${T.faint}`}>
+                            <span className="font-bold">{ev.auteur}</span>
+                            <span>{ev.texte}</span>
+                            <span className="ml-auto font-mono">{new Date(ev.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </Modal>
         );
@@ -3719,121 +3831,113 @@ function AuraPlanApp() {
       ) : null}
 
       {isConfigOpen ? (
-        <Modal T={T} title="Partage et sauvegardes" onClose={() => setIsConfigOpen(false)}
+        <Modal T={T} title="Partage du tableau" onClose={() => setIsConfigOpen(false)}
           footer={<>
-            <span className={`text-[11px] ${T.faint}`}>Tout est enregistré au fil de la frappe.</span>
+            <button type="button" className="text-[11px] font-bold text-indigo-400" onClick={() => setIsGuideOpen(true)}>Comment obtenir un jeton ?</button>
             <button type="button" className={btnSecondary} onClick={() => setIsConfigOpen(false)}>Fermer</button>
           </>}>
           <div className="space-y-4">
 
-            {/* Espace partagé */}
-            <div className={`space-y-3 rounded-xl border p-3 ${T.raise}`}>
+            {/* État en un coup d'œil */}
+            <div className={`rounded-xl border p-3 ${T.raise}`}>
               <div className="flex items-center justify-between gap-2">
-                <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Espace partagé</h4>
-                <span className={`flex items-center gap-1.5 text-[11px] font-bold
-                  ${collabState.status === 'connected' ? 'text-emerald-400'
-                    : collabState.status === 'error' ? 'text-rose-400'
-                      : collabState.status === 'off' ? T.faint : 'text-amber-400'}`}>
-                  <span className={`h-2 w-2 rounded-full ${collabState.status === 'connected' ? 'bg-emerald-400' : collabState.status === 'error' ? 'bg-rose-500' : collabState.status === 'off' ? 'bg-slate-500' : 'bg-amber-400 animate-pulse'}`} />
-                  {collabState.status === 'connected' ? `${collabState.peers + 1} participant(s)`
-                    : collabState.status === 'connecting' ? 'Connexion…'
-                      : collabState.status === 'loading' ? 'Chargement…'
-                        : collabState.status === 'error' ? 'Indisponible'
-                          : 'Hors ligne'}
+                <span className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${syncEtat.etat === 'ok' ? 'bg-emerald-400'
+                    : syncEtat.etat === 'lecture' ? 'bg-sky-400'
+                      : syncEtat.etat === 'erreur' ? 'bg-rose-500'
+                        : syncEtat.etat === 'travail' ? 'bg-amber-400 animate-pulse' : 'bg-slate-500'}`} />
+                  <span className="text-[12px] font-extrabold">
+                    {syncEtat.etat === 'ok' ? 'Tableau partagé et enregistré'
+                      : syncEtat.etat === 'lecture' ? 'Lecture seule'
+                        : syncEtat.etat === 'erreur' ? 'Il y a un point à régler'
+                          : syncEtat.etat === 'travail' ? 'Synchronisation en cours…' : 'Partage inactif'}
+                  </span>
                 </span>
+                <button type="button" className={btnSecondary} onClick={() => synchroniser(true)}>Synchroniser</button>
               </div>
 
-              <p className={`text-[11px] leading-relaxed ${T.faint}`}>
-                Envoyez cette adresse et le mot de passe : c'est tout. <strong className={isDark ? 'text-slate-300' : 'text-slate-700'}>
-                Aucun compte, aucun jeton, aucun réglage GitHub</strong> n'est nécessaire pour le direct — la section GitHub
-                plus bas ne sert qu'à une sauvegarde facultative.
-              </p>
+              {syncEtat.etat === 'erreur' ? (
+                <p className="mt-2 rounded-lg border border-rose-500/40 bg-rose-500/10 p-2 text-[11px] text-rose-200">{syncEtat.message}</p>
+              ) : null}
+              {syncEtat.etat === 'lecture' ? (
+                <p className={`mt-2 text-[11px] ${T.faint}`}>Vous voyez le tableau des autres, mais vos modifications restent sur cet appareil. Ajoutez un jeton ci-dessous pour pouvoir enregistrer.</p>
+              ) : null}
+              {syncEtat.dernier ? (
+                <p className={`mt-2 text-[11px] ${T.faint}`}>Dernier échange à {new Date(syncEtat.dernier).toLocaleTimeString('fr-FR')} · {syncEtat.lectures} lectures, {syncEtat.ecritures} enregistrements</p>
+              ) : null}
+            </div>
+
+            {/* Qui travaille sur le tableau */}
+            <div className={`rounded-xl border p-3 ${T.raise}`}>
+              <h4 className={`mb-2 text-[11px] font-extrabold uppercase tracking-wide ${T.muted}`}>Qui travaille sur le tableau</h4>
+              {syncEtat.participants && syncEtat.participants.length ? (
+                <div className="space-y-1.5">
+                  {syncEtat.participants.slice(0, 8).map((p) => {
+                    const minutes = Math.max(0, Math.round((Date.now() - (p.vu || 0)) / 60000));
+                    return (
+                      <div key={p.id} className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="flex items-center gap-2"><Avatar name={p.nom} size="sm" />{p.nom}{p.id === monAppareil ? ' (vous)' : ''}</span>
+                        <span className={`font-mono text-[10px] ${minutes < 5 ? 'text-emerald-400' : T.faint}`}>
+                          {minutes < 1 ? 'à l’instant' : minutes < 5 ? `il y a ${minutes} min` : minutes < 60 ? `il y a ${minutes} min` : `il y a ${Math.round(minutes / 60)} h`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : <p className={`text-[11px] ${T.faint}`}>Personne d'autre pour l'instant.</p>}
+            </div>
+
+            {/* Réglages : trois champs, pas plus */}
+            <div className={`space-y-3 rounded-xl border p-3 ${T.raise}`}>
+              <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Réglages</h4>
 
               <div className={`rounded-xl border p-2.5 ${T.border} ${T.inset}`}>
-                <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <span className={`text-[10px] font-bold uppercase tracking-wide ${T.faint}`}>Adresse du tableau</span>
-                  <button type="button" className="text-[11px] font-bold text-indigo-400" onClick={copyShareUrl}>Copier</button>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className={`text-[10px] font-bold uppercase tracking-wide ${T.faint}`}>Adresse à partager</span>
+                  <button type="button" className="text-[11px] font-bold text-indigo-400" onClick={copierAdresse}>Copier</button>
                 </div>
-                <code className="block break-all font-mono text-[10px] text-indigo-300">{shareUrl}</code>
+                <code className="block break-all font-mono text-[10px] text-indigo-300">{adresseTableau}</code>
+                <p className={`mt-1.5 text-[10px] ${T.faint}`}>
+                  Dépôt détecté : <span className="font-mono">{sync.owner || '?'}/{sync.repo || '?'}</span> · fichier <span className="font-mono">{FICHIER}</span>
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <Field T={T} label="Votre prénom" hint="Affiché aux autres.">
-                  <input className={inputCls} value={collab.name} onChange={(e) => setCollab({ ...collab, name: e.target.value.slice(0, 40) })} />
+                <Field T={T} label="Votre prénom">
+                  <input className={inputCls} value={sync.nom} onChange={(e) => setSync({ ...sync, nom: e.target.value.slice(0, 40) })} />
                 </Field>
-                <Field T={T} label="Mot de passe partagé" hint="Le changer déconnecte les autres.">
+                <Field T={T} label="Mot de passe du tableau" hint="Il chiffre le fichier.">
                   <input type="password" className={inputCls} value={password}
                     onChange={(e) => { setPassword(e.target.value); saveJson(PASS_KEY, { value: e.target.value }); }} />
                 </Field>
               </div>
 
-              {!pageSecurisee() ? (
-                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] leading-relaxed text-amber-200">
-                  Page ouverte hors <strong>https</strong> : le direct est impossible dans cette configuration.
-                  Ouvrez l'adresse publiée (GitHub Pages) plutôt que le fichier local.
-                </div>
-              ) : null}
+              <Field T={T} label="Jeton GitHub" hint="Nécessaire uniquement pour enregistrer. Sans lui, vous êtes en lecture seule.">
+                <input type="password" className={inputCls} value={sync.token}
+                  onChange={(e) => setSync({ ...sync, token: e.target.value.trim() })} placeholder="github_pat_…" />
+              </Field>
 
-              <div className={`flex items-center justify-between gap-2 rounded-xl border p-2.5 ${T.border} ${T.inset}`}>
-                <span className="flex items-center gap-2">
-                  <span className={`h-2 w-2 rounded-full ${collabState.memoire === 'à jour' || collabState.memoire === 'récupérée' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                  <span className={`text-[11px] font-bold ${T.muted}`}>Tableau conservé en ligne</span>
-                </span>
-                <span className={`font-mono text-[10px] ${T.faint}`}>
-                  {collabState.memoire === 'à jour' ? 'enregistré'
-                    : collabState.memoire === 'récupérée' ? 'récupéré à l’ouverture'
-                      : collabState.memoire === 'vierge' ? 'nouveau tableau'
-                        : 'en cours…'}
-                </span>
-              </div>
-
-              {collabState.voies && collabState.voies.length ? (
-                <div className={`space-y-1.5 rounded-xl border p-2.5 ${T.border} ${T.inset}`}>
-                  <div className={`text-[10px] font-bold uppercase tracking-wide ${T.faint}`}>Voies de communication</div>
-                  {collabState.voies.map((v) => (
-                    <div key={v.nom} className="flex items-center justify-between gap-2 text-[11px]">
-                      <span className="flex items-center gap-1.5">
-                        <span className={`h-1.5 w-1.5 rounded-full ${v.etat === 'connecté' ? 'bg-emerald-400' : v.etat === 'échec' ? 'bg-rose-500' : v.etat === 'absent' ? 'bg-slate-600' : 'bg-amber-400'}`} />
-                        <span className={T.muted}>{v.nom}</span>
-                      </span>
-                      <span className={`font-mono text-[10px] ${v.etat === 'connecté' ? 'text-emerald-400' : v.etat === 'échec' ? 'text-rose-400' : T.faint}`}>
-                        {v.etat}{v.etat === 'connecté' ? ` · ${v.envois}↑ ${v.recus}↓` : v.detail ? ` · ${v.detail}` : ''}
-                      </span>
-                    </div>
-                  ))}
-                  <p className={`pt-1 text-[10px] leading-relaxed ${T.faint}`}>
-                    La première voie relie les navigateurs directement. La seconde passe par un relais public et
-                    fonctionne même derrière un réseau verrouillé. Une copie chiffrée du tableau y est conservée :
-                    c'est elle qui permet de retrouver votre travail depuis un autre ordinateur, même si personne
-                    d'autre n'est connecté.
-                  </p>
+              {(!sync.owner || !sync.repo) ? (
+                <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5">
+                  <p className="text-[11px] text-amber-200">Dépôt non détecté : cette page n'est pas servie par GitHub Pages. Renseignez-le à la main.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input className={inputCls} value={sync.owner} onChange={(e) => setSync({ ...sync, owner: e.target.value.trim() })} placeholder="votre-compte" />
+                    <input className={inputCls} value={sync.repo} onChange={(e) => setSync({ ...sync, repo: e.target.value.trim() })} placeholder="mariage" />
+                  </div>
                 </div>
-              ) : null}
-
-              {collabState.names.length > 1 ? (
-                <div className="flex items-center gap-2">
-                  <span className="flex -space-x-1.5">{collabState.names.slice(0, 8).map((n, i) => <Avatar key={n + i} name={n} size="sm" />)}</span>
-                  <span className={`text-[11px] ${T.muted}`}>{collabState.names.join(', ')}</span>
-                </div>
-              ) : collabState.status === 'connected' ? (
-                <p className={`text-[11px] ${T.faint}`}>Personne d'autre pour l'instant. Si quelqu'un devrait être là, vérifiez que vous avez tapé le même mot de passe.</p>
-              ) : collabState.status === 'error' ? (
-                <p className="text-[11px] text-rose-300">Le direct n'a pas pu démarrer ({collabState.error}). Le tableau reste utilisable et enregistré sur cet appareil.</p>
               ) : null}
 
               <div className="flex gap-2">
-                <button type="button" className={`flex-1 ${btnSecondary}`} onClick={() => setCollab({ ...collab, offline: !collab.offline })}>
-                  {collab.offline ? 'Rejoindre le direct' : 'Travailler hors ligne'}
+                <button type="button" className={`flex-1 ${btnSecondary}`} onClick={() => setSync({ ...sync, actif: !sync.actif })}>
+                  {sync.actif ? 'Désactiver le partage' : 'Activer le partage'}
                 </button>
-                <button type="button" className={`flex-1 ${btnSecondary}`} onClick={() => setCollab({ ...collab, room: collab.room })}
-                  title="Relancer la mise en relation">Reconnecter</button>
-                <button type="button" className={`flex-1 ${btnQuiet}`} onClick={leaveBoard}>Oublier</button>
+                <button type="button" className={`flex-1 ${btnQuiet}`} onClick={leaveBoard}>Oublier le mot de passe</button>
               </div>
             </div>
 
-            {/* Sauvegardes */}
-            <div className={`space-y-3 rounded-xl border p-3 ${T.raise}`}>
-              <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Sauvegarde sur votre ordinateur</h4>
+            {/* Sauvegarde sur le disque */}
+            <div className={`space-y-2 rounded-xl border p-3 ${T.raise}`}>
+              <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Copie sur votre ordinateur</h4>
               <div className="flex gap-2">
                 <button type="button" className={`flex-1 ${btnSecondary}`} onClick={exportJson}>Exporter</button>
                 <button type="button" className={`flex-1 ${btnSecondary}`} onClick={() => fileInputRef.current && fileInputRef.current.click()}>Importer</button>
@@ -3845,7 +3949,7 @@ function AuraPlanApp() {
             <div className={`space-y-3 rounded-xl border p-3 ${T.raise}`}>
               <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Jour J</h4>
               <div className="grid grid-cols-2 gap-3">
-                <Field T={T} label="Date" hint="Repère animé sur la roadmap.">
+                <Field T={T} label="Date">
                   <input type="date" className={inputCls} value={event.date}
                     onChange={(e) => { if (isIsoDate(e.target.value)) commit((prev) => ({ ...prev, event: { ...prev.event, date: e.target.value } })); }} />
                 </Field>
@@ -3854,42 +3958,27 @@ function AuraPlanApp() {
                 </Field>
               </div>
             </div>
+          </div>
+        </Modal>
+      ) : null}
 
-            {/* Réglages techniques, repliés */}
-            <details className={`rounded-xl border ${T.raise}`}>
-              <summary className={`cursor-pointer px-3 py-2.5 text-[11px] font-extrabold uppercase tracking-wide ${T.muted}`}>Réglages avancés</summary>
-              <div className={`space-y-3 border-t p-3 ${T.border}`}>
-                <p className={`text-[11px] leading-relaxed ${T.faint}`}>
-                  Inutile d'y toucher en temps normal : le salon est déduit de l'adresse du site.
-                </p>
-                <Field T={T} label="Salon">
-                  <input className={inputCls} value={collab.room} onChange={(e) => setCollab({ ...collab, room: e.target.value.trim().slice(0, 80) })} />
-                </Field>
-                <p className={`text-[11px] ${T.faint}`}>
-                  La mise en relation passe par des relais publics (Nostr, puis MQTT en secours) ; si le premier ne répond
-                  pas, le suivant est essayé automatiquement. Ces relais ne voient jamais le contenu du tableau.
-                </p>
-
-                <div className={`space-y-3 border-t pt-3 ${T.border}`}>
-                  <h5 className="text-[11px] font-extrabold uppercase tracking-wide">Copie dans un dépôt GitHub</h5>
-                  <p className={`text-[11px] ${T.faint}`}>Sauvegarde optionnelle vers un dépôt privé. Sans rapport avec le direct.</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field T={T} label="Propriétaire"><input className={inputCls} value={gh.owner} onChange={(e) => setGh({ ...gh, owner: e.target.value.trim() })} /></Field>
-                    <Field T={T} label="Dépôt"><input className={inputCls} value={gh.repo} onChange={(e) => setGh({ ...gh, repo: e.target.value.trim() })} /></Field>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field T={T} label="Branche"><input className={inputCls} value={gh.branch} onChange={(e) => setGh({ ...gh, branch: e.target.value.trim() })} /></Field>
-                    <Field T={T} label="Fichier"><input className={inputCls} value={gh.path} onChange={(e) => setGh({ ...gh, path: e.target.value.trim() })} /></Field>
-                  </div>
-                  <Field T={T} label="Jeton d'accès"><input type="password" className={inputCls} value={gh.token} onChange={(e) => setGh({ ...gh, token: e.target.value.trim() })} placeholder="github_pat_…" /></Field>
-                  <div className="flex gap-2">
-                    <button type="button" className={`flex-1 ${btnSecondary}`} onClick={ghPull}>Récupérer</button>
-                    <button type="button" className={`flex-1 ${btnSecondary}`} onClick={ghPush}>Envoyer</button>
-                  </div>
-                  {ghStatus ? <p className="text-[11px] text-indigo-400">{ghStatus}</p> : null}
-                </div>
-              </div>
-            </details>
+      {isGuideOpen ? (
+        <Modal T={T} size="lg" title="Obtenir un jeton GitHub" subtitle="Trois minutes, une seule fois" onClose={() => setIsGuideOpen(false)}
+          footer={<><span className={`text-[11px] ${T.faint}`}>Le jeton reste sur votre appareil.</span>
+            <button type="button" className={btnSecondary} onClick={() => setIsGuideOpen(false)}>Fermer</button></>}>
+          <ol className="space-y-3 text-[12px] leading-relaxed">
+            <li><strong>1.</strong> Sur GitHub, cliquez votre photo en haut à droite, puis <strong>Settings</strong> (tout en bas du menu).</li>
+            <li><strong>2.</strong> Dans la colonne de gauche, descendez jusqu'à <strong>Developer settings</strong>, le dernier élément.</li>
+            <li><strong>3.</strong> <strong>Personal access tokens</strong> › <strong>Fine-grained tokens</strong> › bouton <strong>Generate new token</strong>.</li>
+            <li><strong>4.</strong> Donnez-lui un nom (« tableau mariage »), une expiration longue, puis dans <strong>Repository access</strong> choisissez <em>Only select repositories</em> et cochez votre dépôt <span className="font-mono">{sync.repo || 'mariage'}</span>.</li>
+            <li><strong>5.</strong> Dans <strong>Repository permissions</strong>, cherchez la ligne <strong>Contents</strong> et mettez-la sur <strong>Read and write</strong>. Ne touchez à rien d'autre.</li>
+            <li><strong>6.</strong> <strong>Generate token</strong>, puis copiez la longue chaîne affichée — elle ne sera plus jamais montrée.</li>
+            <li><strong>7.</strong> Collez-la dans le champ « Jeton GitHub » de la fenêtre précédente. C'est terminé.</li>
+          </ol>
+          <div className={`mt-4 rounded-xl border p-3 text-[11px] leading-relaxed ${T.border} ${T.inset} ${T.muted}`}>
+            Ce jeton autorise uniquement la lecture et l'écriture de fichiers dans ce dépôt.
+            Le même jeton peut être collé sur vos deux ordinateurs et sur celui de Magalie.
+            Les personnes sans jeton peuvent quand même consulter le tableau : elles ont juste besoin du mot de passe.
           </div>
         </Modal>
       ) : null}
@@ -3901,9 +3990,12 @@ function AuraPlanApp() {
             <li><strong>Roadmap</strong> — trois niveaux : projet › tâche › sous-tâche. Chaque ligne se plie avec son propre bouton <span className="font-mono">+</span> / <span className="font-mono">−</span>, indépendamment des autres.</li>
             <li><strong>Se déplacer dans le temps</strong> — clic maintenu sur la grille pour la faire glisser, flèches <span className="font-mono">←</span> <span className="font-mono">→</span> pour avancer d'une semaine, molette du milieu enfoncée aussi. Le repère rose marque le Jour J ; s'il est hors écran, une pastille discrète apparaît sur le bord.</li>
             <li><strong>Planning</strong> — cliquez une demi-case pour planifier. Glissez un bloc horizontalement pour changer de date, verticalement pour le confier à un autre collaborateur.</li>
-            <li><strong>Kanban</strong> — le « + » de chaque colonne crée une tâche déjà dans le bon statut. Les cartes se réordonnent à la souris dans leur colonne.</li>
+            <li><strong>Kanban</strong> — tapez un titre dans une colonne et faites Entrée : la tâche est créée au bon endroit, et vous pouvez enchaîner. « Grouper par » réorganise le tableau par statut, par personne ou par priorité. Les cartes se réordonnent à la souris.</li>
+            <li><strong>Chaque tâche a une référence</strong> (MAR-12) : pratique pour se dire « regarde MAR-12 ». La recherche la reconnaît.</li>
+            <li><strong>Échanges et historique</strong> — ouvrez une tâche : vous pouvez vous y répondre par écrit, et l'application consigne qui a fait quoi.</li>
+            <li><strong>Tâches préalables</strong> — indiquez qu'une tâche en attend une autre. La carte affiche « En attente de MAR-3 », et la roadmap signale ⚠ si les dates se contredisent.</li>
             <li><strong>Notes</strong> — l'endroit pour les devis, contacts et comparatifs, afin de garder les autres vues lisibles. Une note peut être rattachée à un projet.</li>
-            <li><strong>À plusieurs</strong> — envoyez l'adresse du site et le mot de passe. Tous ceux qui les ont voient le tableau évoluer en direct, de navigateur à navigateur. Rien d'autre à régler.</li>
+            <li><strong>À plusieurs</strong> — envoyez l'adresse du site et le mot de passe. Le tableau est enregistré, chiffré, dans votre dépôt GitHub : chacun le retrouve depuis n'importe quel ordinateur, à tout moment. Pour pouvoir enregistrer ses propres modifications, il faut aussi coller un jeton (bouton « Partager », guide fourni).</li>
             <li className="pt-2"><strong>Raccourcis</strong> — <span className="font-mono">1 2 3 4</span> changent de vue, <span className="font-mono">T</span> recentre sur aujourd'hui, <span className="font-mono">F</span> affiche toute la période, <span className="font-mono">Ctrl+Z</span> annule, <span className="font-mono">Échap</span> ferme.</li>
           </ul>
         </Modal>
