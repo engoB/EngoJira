@@ -272,6 +272,21 @@ const normalizeNote = (n) => {
   };
 };
 
+const normalizeMembre = (m) => {
+  const o = m && typeof m === 'object' ? m : { nom: m };
+  return {
+    id: o.id ? String(o.id) : uid('m'),
+    nom: safeText(o.nom, 'Sans nom'),
+    role: safeText(o.role, '')
+  };
+};
+
+const normalizeEquipe = (raw) => {
+  const liste = Array.isArray(raw) ? raw.map(normalizeMembre) : [];
+  const vus = new Set();
+  return liste.filter((m) => { const k = m.nom.toLowerCase(); if (vus.has(k)) return false; vus.add(k); return true; });
+};
+
 const normalizeColumnLabels = (raw) => {
   const o = raw && typeof raw === 'object' ? raw : {};
   const out = {};
@@ -317,6 +332,7 @@ const normalizeData = (raw) => {
   const board = normalizeBoard(o.board);
   return {
     board,
+    equipe: normalizeEquipe(o.equipe),
     columnLabels: normalizeColumnLabels(o.columnLabels),
     event: normalizeEvent(o.event),
     projects: attribuerReferences(Array.isArray(o.projects) ? o.projects.map(normalizeProject) : [], board.prefixe),
@@ -333,6 +349,10 @@ const jour = (n) => formatDateIso(addDays(new Date(), n));
 
 const SEED_RAW = {
   board: { titre: 'Mon tableau', prefixe: 'TSK' },
+  equipe: [
+    { id: 'm-moi', nom: 'Moi', role: '' },
+    { id: 'm-camille', nom: 'Camille', role: 'exemple — renommez ou retirez' }
+  ],
   event: { date: jour(90), label: 'Échéance', actif: true },
   projects: [
     {
@@ -563,7 +583,7 @@ const COLLECTIONS = ['projects', 'planning', 'notes'];
 // Représentation fichier : chaque fiche est une entrée repérée par son identifiant,
 // ce qui permet de fusionner deux versions sans rien écraser à l'aveugle.
 const versFichier = (data) => {
-  const out = { meta: { board: data.board, columnLabels: data.columnLabels, event: data.event } };
+  const out = { meta: { board: data.board, equipe: data.equipe, columnLabels: data.columnLabels, event: data.event } };
   COLLECTIONS.forEach((c) => {
     const m = {};
     (data[c] || []).forEach((item, i) => { m[item.id] = { ...item, __ordre: i }; });
@@ -575,7 +595,7 @@ const versFichier = (data) => {
 const depuisFichier = (brut) => {
   const o = brut && typeof brut === 'object' ? brut : {};
   const meta = o.meta || {};
-  const out = { board: meta.board, columnLabels: meta.columnLabels, event: meta.event };
+  const out = { board: meta.board, equipe: meta.equipe, columnLabels: meta.columnLabels, event: meta.event };
   COLLECTIONS.forEach((c) => {
     const liste = [];
     Object.keys(o[c] || {}).forEach((id) => { if (o[c][id]) liste.push(o[c][id]); });
@@ -859,15 +879,19 @@ function AuraPlanApp() {
   const [splitSegments, setSplitSegments] = useState([0.5, 0.5]);
   const [projectForm, setProjectForm] = useState(null);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isEquipeOpen, setIsEquipeOpen] = useState(false);
+  const [nouveauMembre, setNouveauMembre] = useState({ nom: '', role: '' });
+  const [membreEnEdition, setMembreEnEdition] = useState(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [selectedNoteId, setSelectedNoteId] = useState(null);
   const [editingColumn, setEditingColumn] = useState(null);
   const [columnDraft, setColumnDraft] = useState('');
 
-  const anyModalOpen = !!(editingTask || taskForm || subtaskForm || editingEntry || entryForm || splitEntry || projectForm || isConfigOpen || isHelpOpen);
+  const anyModalOpen = !!(editingTask || taskForm || subtaskForm || editingEntry || entryForm || splitEntry || projectForm || isConfigOpen || isHelpOpen || isEquipeOpen);
   const closeAllModals = useCallback(() => {
     setEditingTask(null); setTaskForm(null); setSubtaskForm(null); setEditingEntry(null);
     setEntryForm(null); setSplitEntry(null); setProjectForm(null); setIsConfigOpen(false); setIsHelpOpen(false);
+    setIsEquipeOpen(false); setMembreEnEdition(null);
   }, []);
 
   useEffect(() => { saveJson(PREFS_KEY, { isDark, tab: activeTab, columnWidth, openProjects, grouperPar }); }, [openProjects, isDark, activeTab, columnWidth, grouperPar]);
@@ -886,13 +910,30 @@ function AuraPlanApp() {
     return list;
   }, [projects]);
 
+  // L'équipe déclarée passe en premier, dans son ordre ; les noms rencontrés
+  // ailleurs (import, ancien tableau) sont conservés à la suite.
   const collaborators = useMemo(() => {
-    const set = new Set();
-    planning.forEach((e) => set.add(e.assignee));
-    allTasks.forEach((t) => { set.add(t.assignee); t.subtasks.forEach((s) => set.add(s.assignee)); });
-    if (set.size === 0) set.add('Moi');
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'fr'));
-  }, [planning, allTasks]);
+    const ordre = [];
+    const vus = new Set();
+    (data.equipe || []).forEach((m) => { const k = m.nom.toLowerCase(); if (!vus.has(k)) { vus.add(k); ordre.push(m.nom); } });
+    const autres = new Set();
+    planning.forEach((e) => autres.add(e.assignee));
+    allTasks.forEach((t) => { autres.add(t.assignee); t.subtasks.forEach((sb) => autres.add(sb.assignee)); });
+    Array.from(autres).sort((a, b) => a.localeCompare(b, 'fr')).forEach((n) => {
+      if (!vus.has(String(n).toLowerCase())) { vus.add(String(n).toLowerCase()); ordre.push(n); }
+    });
+    return ordre.length ? ordre : ['Moi'];
+  }, [data.equipe, planning, allTasks]);
+
+  const chargeParPersonne = useMemo(() => {
+    const m = new Map();
+    allTasks.forEach((t) => {
+      m.set(t.assignee, (m.get(t.assignee) || 0) + 1);
+      t.subtasks.forEach((sb) => m.set(sb.assignee, (m.get(sb.assignee) || 0) + 1));
+    });
+    planning.forEach((e) => m.set(e.assignee, (m.get(e.assignee) || 0) + 1));
+    return m;
+  }, [allTasks, planning]);
 
   const taskProgress = useCallback((t) => {
     if (t.subtasks.length) return t.subtasks.filter((s) => s.status === 'DONE').length / t.subtasks.length;
@@ -1138,6 +1179,67 @@ function AuraPlanApp() {
       if (fresh && projectProgress(fresh) === 100) { triggerConfetti(); pushToast(`« ${fresh.title} » est bouclé à 100 %`, 'success'); }
     }
   }, [commit, projectProgress, pushToast]);
+
+  /* ------------------------------- Équipe ------------------------------- */
+  const ajouterMembre = (nom, role) => {
+    const propre = String(nom || '').trim();
+    if (!propre) return false;
+    if ((data.equipe || []).some((m) => m.nom.toLowerCase() === propre.toLowerCase())) {
+      pushToast('Cette personne est déjà dans l’équipe', 'error');
+      return false;
+    }
+    commit((prev) => ({ ...prev, equipe: [...(prev.equipe || []), { id: uid('m'), nom: propre, role: String(role || '').trim() }] }),
+      `${propre} rejoint l’équipe`);
+    return true;
+  };
+
+  // Renommer met à jour toutes les affectations : rien ne se retrouve orphelin.
+  const renommerMembre = (id, nouveauNom, nouveauRole) => {
+    const propre = String(nouveauNom || '').trim();
+    if (!propre) return;
+    const membre = (data.equipe || []).find((m) => m.id === id);
+    if (!membre) return;
+    const ancien = membre.nom;
+    commit((prev) => ({
+      ...prev,
+      equipe: prev.equipe.map((m) => (m.id === id ? { ...m, nom: propre, role: String(nouveauRole !== undefined ? nouveauRole : m.role || '').trim() } : m)),
+      projects: prev.projects.map((p) => ({
+        ...p,
+        tasks: p.tasks.map((t) => ({
+          ...t,
+          assignee: t.assignee === ancien ? propre : t.assignee,
+          subtasks: t.subtasks.map((sb) => ({ ...sb, assignee: sb.assignee === ancien ? propre : sb.assignee }))
+        }))
+      })),
+      planning: prev.planning.map((e) => (e.assignee === ancien ? { ...e, assignee: propre } : e))
+    }), ancien === propre ? 'Rôle mis à jour' : `${ancien} devient ${propre}`);
+    if (sync.nom === ancien) setSync((c) => ({ ...c, nom: propre }));
+    if (assigneeFilter === ancien) setAssigneeFilter(propre);
+  };
+
+  // Retirer réaffecte le travail : soit à quelqu'un d'autre, soit à « Non assigné ».
+  const retirerMembre = (id, remplacant) => {
+    const membre = (data.equipe || []).find((m) => m.id === id);
+    if (!membre) return;
+    const cible = String(remplacant || 'Non assigné').trim() || 'Non assigné';
+    commit((prev) => ({
+      ...prev,
+      equipe: prev.equipe.filter((m) => m.id !== id),
+      projects: prev.projects.map((p) => ({
+        ...p,
+        tasks: p.tasks.map((t) => ({
+          ...t,
+          assignee: t.assignee === membre.nom ? cible : t.assignee,
+          subtasks: t.subtasks.map((sb) => ({ ...sb, assignee: sb.assignee === membre.nom ? cible : sb.assignee }))
+        }))
+      })),
+      planning: prev.planning.map((e) => (e.assignee === membre.nom ? { ...e, assignee: cible } : e))
+    }), `${membre.nom} retiré · son travail revient à ${cible}`);
+    if (assigneeFilter === membre.nom) setAssigneeFilter('ALL');
+  };
+
+  // Un nom rencontré dans les tâches mais absent de l'équipe peut y être ajouté d'un clic.
+  const integrerMembre = (nom) => ajouterMembre(nom, '');
 
   const saveProject = (form) => {
     if (!String(form.title).trim()) { pushToast('Donnez un nom au projet', 'error'); return; }
@@ -2096,10 +2198,22 @@ function AuraPlanApp() {
                 ${assigneeFilter !== 'ALL' && assigneeFilter === sync.nom ? 'border border-indigo-500 bg-indigo-600 text-white' : btnSecondary}`}>
               Mes tâches
             </button>
-            <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)} className={`hidden w-32 lg:block ${inputCls}`}>
+            <select value={assigneeFilter}
+              onChange={(e) => { if (e.target.value === '__GERER__') { setIsEquipeOpen(true); return; } setAssigneeFilter(e.target.value); }}
+              className={`hidden w-32 lg:block ${inputCls}`}>
               <option value="ALL">Toute l'équipe</option>
               {collaborators.map((c) => <option key={c} value={c}>{c}</option>)}
+              <option value="__GERER__">Gérer l'équipe…</option>
             </select>
+            <button type="button" onClick={() => setIsEquipeOpen(true)} className={btnQuiet}
+              title={`Gérer l'équipe (${collaborators.length} personne(s))`}>
+              <span className="flex items-center gap-1.5">
+                <span className="flex -space-x-1.5">
+                  {collaborators.slice(0, 3).map((c) => <Avatar key={c} name={c} size="sm" />)}
+                </span>
+                <span className="hidden xl:inline">Équipe</span>
+              </span>
+            </button>
             </>
           ) : null}
           <button type="button" onClick={() => setIsDark(!isDark)} className={btnQuiet} title="Changer de thème">{isDark ? '☀' : '☾'}</button>
@@ -2606,7 +2720,8 @@ function AuraPlanApp() {
               <div className={`sticky top-7 z-30 flex h-12 border-b ${T.rail} ${T.border}`}>
                 <div style={{ width: '240px' }} className={`sticky left-0 z-40 flex items-center justify-between border-r px-4 ${T.rail} ${T.border}`}>
                   <span className="text-[11px] font-extrabold">Collaborateurs</span>
-                  <span className={`font-mono text-[10px] ${T.faint}`}>{planningRows.length}</span>
+                  <button type="button" onClick={() => setIsEquipeOpen(true)} title="Gérer l'équipe"
+                    className={`rounded-lg px-2 py-0.5 text-[11px] font-bold ${T.raise} ${T.muted} hover:text-indigo-400`}>+</button>
                 </div>
                 {dayHeaderHalves}
               </div>
@@ -3339,6 +3454,134 @@ function AuraPlanApp() {
         </Modal>
       ) : null}
 
+      {isEquipeOpen ? (
+        <Modal T={T} title="L'équipe" subtitle="Les personnes à qui vous pouvez confier tâches et créneaux"
+          onClose={() => { setIsEquipeOpen(false); setMembreEnEdition(null); }}
+          footer={<>
+            <span className={`text-[11px] ${T.faint}`}>Renommer met à jour toutes les affectations.</span>
+            <button type="button" className={btnSecondary} onClick={() => { setIsEquipeOpen(false); setMembreEnEdition(null); }}>Fermer</button>
+          </>}>
+          <div className="space-y-4">
+
+            {/* Ajout */}
+            <form className={`flex flex-wrap items-end gap-2 rounded-xl border p-3 ${T.raise}`}
+              onSubmit={(e) => { e.preventDefault(); if (ajouterMembre(nouveauMembre.nom, nouveauMembre.role)) setNouveauMembre({ nom: '', role: '' }); }}>
+              <div className="min-w-[9rem] flex-1">
+                <Field T={T} label="Prénom ou nom">
+                  <input className={inputCls} value={nouveauMembre.nom} placeholder="Ex. Camille"
+                    onChange={(e) => setNouveauMembre({ ...nouveauMembre, nom: e.target.value })} />
+                </Field>
+              </div>
+              <div className="min-w-[9rem] flex-1">
+                <Field T={T} label="Rôle (facultatif)">
+                  <input className={inputCls} value={nouveauMembre.role} placeholder="Ex. graphiste"
+                    onChange={(e) => setNouveauMembre({ ...nouveauMembre, role: e.target.value })} />
+                </Field>
+              </div>
+              <button type="submit" className={btnPrimary}>Ajouter</button>
+            </form>
+
+            {/* Membres déclarés */}
+            <div className={`overflow-hidden rounded-xl border ${T.raise}`}>
+              <div className={`border-b px-3 py-2 text-[11px] font-extrabold uppercase tracking-wide ${T.border} ${T.inset}`}>
+                Équipe ({(data.equipe || []).length})
+              </div>
+              <div className="divide-y divide-white/5">
+                {(data.equipe || []).length === 0 ? (
+                  <p className={`px-3 py-4 text-[11px] ${T.faint}`}>Personne pour l'instant. Ajoutez au moins vous-même.</p>
+                ) : null}
+                {(data.equipe || []).map((m) => {
+                  const enEdition = membreEnEdition && membreEnEdition.id === m.id;
+                  const charge = chargeParPersonne.get(m.nom) || 0;
+                  const autres = collaborators.filter((c) => c !== m.nom);
+                  return (
+                    <div key={m.id} className="px-3 py-2.5">
+                      {enEdition ? (
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap gap-2">
+                            <input autoFocus className={`${inputCls} min-w-[8rem] flex-1`} value={membreEnEdition.nom}
+                              onChange={(e) => setMembreEnEdition({ ...membreEnEdition, nom: e.target.value })} />
+                            <input className={`${inputCls} min-w-[8rem] flex-1`} value={membreEnEdition.role || ''} placeholder="Rôle"
+                              onChange={(e) => setMembreEnEdition({ ...membreEnEdition, role: e.target.value })} />
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={`text-[10px] ${T.faint}`}>{charge} élément(s) suivront le nouveau nom</span>
+                            <span className="flex gap-2">
+                              <button type="button" className={btnQuiet} onClick={() => setMembreEnEdition(null)}>Annuler</button>
+                              <button type="button" className={btnPrimary}
+                                onClick={() => { renommerMembre(m.id, membreEnEdition.nom, membreEnEdition.role); setMembreEnEdition(null); }}>Enregistrer</button>
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <Avatar name={m.nom} />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-xs font-bold">{m.nom}</span>
+                              {sync.nom === m.nom ? <span className="rounded bg-indigo-600 px-1.5 py-0.5 text-[9px] font-bold text-white">vous</span> : null}
+                            </div>
+                            <div className={`truncate text-[10px] ${T.faint}`}>
+                              {m.role ? m.role + ' · ' : ''}{charge} élément(s) attribué(s)
+                            </div>
+                          </div>
+                          <button type="button" className={btnQuiet} onClick={() => setMembreEnEdition({ id: m.id, nom: m.nom, role: m.role || '' })}>Modifier</button>
+                          <button type="button" className="rounded-xl px-2 py-2 text-xs font-bold text-rose-400 hover:bg-rose-500/10"
+                            onClick={() => {
+                              if (charge > 0) {
+                                const propose = autres[0] || 'Non assigné';
+                                const cible = window.prompt(
+                                  `${m.nom} a ${charge} élément(s).\n\nÀ qui les confier ? Laissez « Non assigné » si personne ne reprend.\n\nNoms possibles : ${autres.join(', ') || 'aucun'}`,
+                                  propose);
+                                if (cible === null) return;
+                                retirerMembre(m.id, cible);
+                              } else {
+                                if (!window.confirm(`Retirer ${m.nom} de l'équipe ?`)) return;
+                                retirerMembre(m.id, 'Non assigné');
+                              }
+                            }}>Retirer</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Noms rencontrés hors équipe */}
+            {(() => {
+              const declares = new Set((data.equipe || []).map((m) => m.nom.toLowerCase()));
+              const orphelins = collaborators.filter((c) => !declares.has(c.toLowerCase()));
+              if (!orphelins.length) return null;
+              return (
+                <div className={`space-y-2 rounded-xl border p-3 ${T.raise}`}>
+                  <h4 className={`text-[11px] font-extrabold uppercase tracking-wide ${T.muted}`}>Noms trouvés dans le tableau</h4>
+                  <p className={`text-[11px] ${T.faint}`}>Ces personnes apparaissent dans des tâches ou des créneaux sans figurer dans l'équipe.</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {orphelins.map((n) => (
+                      <button key={n} type="button" onClick={() => integrerMembre(n)}
+                        className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-bold ${T.border} ${T.hover}`}>
+                        <Avatar name={n} size="sm" />{n}
+                        <span className="text-indigo-400">+ intégrer</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className={`rounded-xl border p-3 ${T.raise}`}>
+              <Field T={T} label="Qui êtes-vous ?" hint="Sert à signer vos messages et au filtre « Mes tâches ».">
+                <select className={inputCls} value={sync.nom || ''} onChange={(e) => setSync({ ...sync, nom: e.target.value })}>
+                  <option value="">— choisir —</option>
+                  {collaborators.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </Field>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
       {isHelpOpen ? (
         <Modal T={T} title="Prise en main" onClose={() => setIsHelpOpen(false)}
           footer={<><span className={`text-[11px] ${T.faint}`}>Tout est stocké dans votre navigateur.</span><button type="button" className={btnSecondary} onClick={() => setIsHelpOpen(false)}>Fermer</button></>}>
@@ -3350,6 +3593,7 @@ function AuraPlanApp() {
             <li><strong>Chaque tâche a une référence</strong> (TSK-12) : pratique pour se dire « regarde TSK-12 ». La recherche la reconnaît.</li>
             <li><strong>Échanges et historique</strong> — ouvrez une tâche : vous pouvez vous y répondre par écrit, et l'application consigne qui a fait quoi.</li>
             <li><strong>Tâches préalables</strong> — indiquez qu'une tâche en attend une autre. La carte affiche « En attente de TSK-3 », et la roadmap signale ⚠ si les dates se contredisent.</li>
+            <li><strong>Équipe</strong> — bouton « Équipe » en haut à droite : ajoutez, renommez ou retirez quelqu'un. Renommer met à jour toutes ses tâches et ses créneaux ; retirer demande à qui confier son travail. Une personne sans aucune tâche apparaît quand même dans le planning.</li>
             <li><strong>Notes</strong> — l'endroit pour les devis, contacts et comparatifs, afin de garder les autres vues lisibles. Une note peut être rattachée à un projet.</li>
             <li><strong>À plusieurs</strong> — envoyez l'adresse du site et le mot de passe. Le tableau est enregistré, chiffré, dans votre dépôt GitHub : chacun le retrouve depuis n'importe quel ordinateur, à tout moment. Pour pouvoir enregistrer ses propres modifications, il faut aussi coller un jeton (bouton « Partager », guide fourni).</li>
             <li className="pt-2"><strong>Raccourcis</strong> — <span className="font-mono">1 2 3 4</span> changent de vue, <span className="font-mono">T</span> recentre sur aujourd'hui, <span className="font-mono">F</span> affiche toute la période, <span className="font-mono">Ctrl+Z</span> annule, <span className="font-mono">Échap</span> ferme.</li>
