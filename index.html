@@ -83,8 +83,8 @@ const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 const STATUS_META = {
   TODO: { label: 'À faire', dot: 'bg-slate-400', bar: 'bg-slate-500', tint: 'bg-slate-500/10 border-slate-500/30 text-slate-300' },
   IN_PROGRESS: { label: 'En cours', dot: 'bg-indigo-400', bar: 'bg-indigo-500', tint: 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300' },
-  IN_REVIEW: { label: 'Devis reçu', dot: 'bg-fuchsia-400', bar: 'bg-fuchsia-500', tint: 'bg-fuchsia-500/10 border-fuchsia-500/30 text-fuchsia-300' },
-  DONE: { label: 'Validé', dot: 'bg-emerald-400', bar: 'bg-emerald-500', tint: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' }
+  IN_REVIEW: { label: 'En revue', dot: 'bg-fuchsia-400', bar: 'bg-fuchsia-500', tint: 'bg-fuchsia-500/10 border-fuchsia-500/30 text-fuchsia-300' },
+  DONE: { label: 'Terminé', dot: 'bg-emerald-400', bar: 'bg-emerald-500', tint: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' }
 };
 
 const PRIORITY_META = {
@@ -279,967 +279,148 @@ const normalizeColumnLabels = (raw) => {
   return out;
 };
 
-const DEFAULT_EVENT = { date: '2027-07-31', label: 'Jour J' };
+const DEFAULT_EVENT = { date: formatDateIso(addDays(new Date(), 90)), label: 'Échéance' };
+
+// Identité du tableau : tout ce qui était figé devient un réglage.
+const DEFAULT_BOARD = { titre: 'Mon tableau', prefixe: 'TSK' };
+
+const normalizeBoard = (raw) => {
+  const o = raw && typeof raw === 'object' ? raw : {};
+  const prefixe = String(o.prefixe || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6);
+  return { titre: safeText(o.titre, DEFAULT_BOARD.titre), prefixe: prefixe || DEFAULT_BOARD.prefixe };
+};
 
 const normalizeEvent = (raw) => {
   const o = raw && typeof raw === 'object' ? raw : {};
-  return { date: safeDate(o.date) === TODAY_STR && !isIsoDate(o.date) ? DEFAULT_EVENT.date : safeDate(o.date), label: safeText(o.label, DEFAULT_EVENT.label) };
+  return {
+    date: isIsoDate(o.date) ? o.date : DEFAULT_EVENT.date,
+    label: safeText(o.label, DEFAULT_EVENT.label),
+    actif: o.actif !== false
+  };
 };
 
-// Référence courte façon Jira : MAR-1, MAR-2… stable une fois attribuée.
-const attribuerReferences = (projects) => {
+// Référence courte et stable : TSK-1, TSK-2… le préfixe est celui du tableau.
+const attribuerReferences = (projects, prefixe) => {
+  const p = prefixe || DEFAULT_BOARD.prefixe;
+  const motif = new RegExp('^' + p + '-(\\d+)$');
   let max = 0;
-  projects.forEach((p) => p.tasks.forEach((t) => {
-    const m = /^MAR-(\d+)$/.exec(t.ref || '');
+  projects.forEach((pr) => pr.tasks.forEach((t) => {
+    const m = motif.exec(t.ref || '');
     if (m) max = Math.max(max, Number(m[1]));
   }));
-  projects.forEach((p) => p.tasks.forEach((t) => { if (!t.ref) { max += 1; t.ref = 'MAR-' + max; } }));
+  projects.forEach((pr) => pr.tasks.forEach((t) => { if (!t.ref || !motif.test(t.ref)) { max += 1; t.ref = p + '-' + max; } }));
   return projects;
 };
 
 const normalizeData = (raw) => {
   const o = raw && typeof raw === 'object' ? raw : {};
+  const board = normalizeBoard(o.board);
   return {
+    board,
     columnLabels: normalizeColumnLabels(o.columnLabels),
     event: normalizeEvent(o.event),
-    projects: attribuerReferences(Array.isArray(o.projects) ? o.projects.map(normalizeProject) : []),
+    projects: attribuerReferences(Array.isArray(o.projects) ? o.projects.map(normalizeProject) : [], board.prefixe),
     planning: Array.isArray(o.planning) ? o.planning.map(normalizeEntry)
       : Array.isArray(o.planningEntries) ? o.planningEntries.map(normalizeEntry) : [],
     notes: Array.isArray(o.notes) ? o.notes.map(normalizeNote) : []
   };
 };
 
-/* --------- Jeu de démonstration : votre mariage (issu de vos données) -------- */
+/* ------------------------ Tableau de démarrage ------------------------ */
+// Tableau de départ, volontairement neutre : il montre chaque fonction
+// et se remplace par le vôtre au fur et à mesure.
+const jour = (n) => formatDateIso(addDays(new Date(), n));
+
 const SEED_RAW = {
- "columnLabels": {
-  "TODO": "À faire",
-  "IN_PROGRESS": "En cours",
-  "IN_REVIEW": "Devis reçu",
-  "DONE": "Validé"
- },
- "event": {
-  "date": "2027-07-31",
-  "label": "Jour J — Mariage"
- },
- "projects": [
-  {
-   "id": "proj-prestas",
-   "title": "Mariage — Prestataires",
-   "category": "Prestataires",
-   "startDate": "2026-08-10",
-   "duration": 326,
-   "color": "from-indigo-500 to-violet-600",
-   "tasks": [
+  board: { titre: 'Mon tableau', prefixe: 'TSK' },
+  event: { date: jour(90), label: 'Échéance', actif: true },
+  projects: [
     {
-     "id": "t-lieu",
-     "title": "Lieu — Château Maucaillou",
-     "assignee": "Moi",
-     "startDate": "2026-08-10",
-     "duration": 56,
-     "status": "IN_PROGRESS",
-     "priority": "HIGH",
-     "rank": 0,
-     "notes": "Formule Élégance 4 850 € — samedi 10h-3h et dimanche 10h-18h.",
-     "subtasks": [
-      {
-       "title": "Domaine retenu",
-       "assignee": "Moi",
-       "status": "DONE",
-       "startDate": "2026-08-10",
-       "duration": 3,
-       "notes": "",
-       "id": "t-lieu-st00"
-      },
-      {
-       "title": "Signer le contrat",
-       "assignee": "Moi",
-       "status": "IN_PROGRESS",
-       "startDate": "2026-08-13",
-       "duration": 8,
-       "notes": "",
-       "id": "t-lieu-st01"
-      },
-      {
-       "title": "Verser l'acompte",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-08-21",
-       "duration": 8,
-       "notes": "",
-       "id": "t-lieu-st02"
-      },
-      {
-       "title": "Réserver les chambres d'hôtes",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2026-08-31",
-       "duration": 35,
-       "notes": "",
-       "id": "t-lieu-st03"
-      }
-     ]
+      id: 'demo-prise-en-main', title: 'Prise en main', category: 'Découverte',
+      startDate: jour(0), duration: 21, color: 'from-indigo-500 to-violet-600',
+      tasks: [
+        { id: 'demo-t1', title: 'Faites glisser cette barre à la souris', assignee: 'Moi',
+          startDate: jour(0), duration: 5, status: 'IN_PROGRESS', priority: 'MEDIUM',
+          notes: 'Attrapez ses bords pour changer la durée. Le clic maintenu sur la grille fait défiler le temps.',
+          subtasks: [] },
+        { id: 'demo-t2', title: 'Dépliez-moi avec le bouton +', assignee: 'Moi',
+          startDate: jour(3), duration: 8, status: 'TODO', priority: 'HIGH',
+          notes: 'Une tâche peut contenir autant de sous-tâches que nécessaire.',
+          subtasks: [
+            { id: 'demo-t2-s1', title: 'Voici une sous-tâche', assignee: 'Moi', status: 'DONE', startDate: jour(3), duration: 2 },
+            { id: 'demo-t2-s2', title: 'Cochez-la pour la valider', assignee: 'Moi', status: 'TODO', startDate: jour(5), duration: 3 },
+            { id: 'demo-t2-s3', title: "L'avancement du projet suit tout seul", assignee: 'Camille', status: 'TODO', startDate: jour(8), duration: 3 }
+          ] },
+        { id: 'demo-t3', title: 'Ouvrez-moi pour découvrir les échanges', assignee: 'Camille',
+          startDate: jour(8), duration: 6, status: 'TODO', priority: 'LOW',
+          notes: 'Chaque tâche a une référence courte, un fil de discussion et un historique.',
+          subtasks: [] }
+      ]
     },
     {
-     "id": "t-traiteur",
-     "title": "Traiteur — Damien Bernardet",
-     "assignee": "Magalie",
-     "startDate": "2026-08-17",
-     "duration": 109,
-     "status": "IN_PROGRESS",
-     "priority": "HIGH",
-     "rank": 1,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Traiteur retenu",
-       "assignee": "Magalie",
-       "status": "DONE",
-       "startDate": "2026-08-17",
-       "duration": 3,
-       "notes": "",
-       "id": "t-traiteur-st00"
-      },
-      {
-       "title": "Dégustation du menu",
-       "assignee": "Magalie",
-       "status": "IN_PROGRESS",
-       "startDate": "2026-08-20",
-       "duration": 8,
-       "notes": "",
-       "id": "t-traiteur-st01"
-      },
-      {
-       "title": "Valider le menu définitif",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2026-09-03",
-       "duration": 92,
-       "notes": "",
-       "id": "t-traiteur-st02"
-      }
-     ]
+      id: 'demo-projet', title: 'Projet exemple', category: 'Exemple',
+      startDate: jour(7), duration: 60, color: 'from-emerald-500 to-teal-600',
+      tasks: [
+        { id: 'demo-p1', title: 'Cadrage', assignee: 'Moi', startDate: jour(7), duration: 14,
+          status: 'IN_PROGRESS', priority: 'HIGH', notes: '',
+          subtasks: [
+            { id: 'demo-p1-s1', title: 'Définir le besoin', assignee: 'Moi', status: 'DONE', startDate: jour(7), duration: 5 },
+            { id: 'demo-p1-s2', title: 'Chiffrer', assignee: 'Camille', status: 'IN_PROGRESS', startDate: jour(12), duration: 9 }
+          ] },
+        { id: 'demo-p2', title: 'Réalisation', assignee: 'Camille', startDate: jour(21), duration: 28,
+          status: 'TODO', priority: 'MEDIUM', notes: '', bloquePar: ['demo-p1'],
+          subtasks: [
+            { id: 'demo-p2-s1', title: 'Première étape', assignee: 'Camille', status: 'TODO', startDate: jour(21), duration: 14 },
+            { id: 'demo-p2-s2', title: 'Seconde étape', assignee: 'Moi', status: 'TODO', startDate: jour(35), duration: 14 }
+          ] },
+        { id: 'demo-p3', title: 'Recette et livraison', assignee: 'Moi', startDate: jour(49), duration: 18,
+          status: 'TODO', priority: 'URGENT', notes: '', bloquePar: ['demo-p2'],
+          subtasks: [
+            { id: 'demo-p3-s1', title: 'Vérifier avec les intéressés', assignee: 'Moi', status: 'TODO', startDate: jour(49), duration: 10 },
+            { id: 'demo-p3-s2', title: 'Livrer', assignee: 'Camille', status: 'TODO', startDate: jour(59), duration: 8 }
+          ] }
+      ]
     },
     {
-     "id": "t-planner",
-     "title": "Déterminer le wedding planner",
-     "assignee": "Moi",
-     "startDate": "2026-08-24",
-     "duration": 57,
-     "status": "IN_PROGRESS",
-     "priority": "HIGH",
-     "rank": 2,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Comparer les trois devis",
-       "assignee": "Moi",
-       "status": "IN_REVIEW",
-       "startDate": "2026-08-24",
-       "duration": 15,
-       "notes": "",
-       "id": "t-planner-st00"
-      },
-      {
-       "title": "Choisir et signer",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-09-08",
-       "duration": 42,
-       "notes": "",
-       "id": "t-planner-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-photo",
-     "title": "Déterminer le photographe",
-     "assignee": "Moi",
-     "startDate": "2026-10-19",
-     "duration": 31,
-     "status": "TODO",
-     "priority": "HIGH",
-     "rank": 3,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir le photographe",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-10-19",
-       "duration": 21,
-       "notes": "",
-       "id": "t-photo-st00"
-      },
-      {
-       "title": "Signer et verser l’acompte",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-11-09",
-       "duration": 10,
-       "notes": "",
-       "id": "t-photo-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-video",
-     "title": "Déterminer le vidéaste",
-     "assignee": "Moi",
-     "startDate": "2026-11-18",
-     "duration": 31,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 4,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir le vidéaste",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-11-18",
-       "duration": 21,
-       "notes": "",
-       "id": "t-video-st00"
-      },
-      {
-       "title": "Signer le contrat",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-12-09",
-       "duration": 10,
-       "notes": "",
-       "id": "t-video-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-dj",
-     "title": "Déterminer le DJ",
-     "assignee": "Témoins",
-     "startDate": "2026-12-03",
-     "duration": 31,
-     "status": "TODO",
-     "priority": "HIGH",
-     "rank": 5,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir le DJ",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-12-03",
-       "duration": 21,
-       "notes": "",
-       "id": "t-dj-st00"
-      },
-      {
-       "title": "Signer le contrat",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2026-12-24",
-       "duration": 10,
-       "notes": "",
-       "id": "t-dj-st01"
-      },
-      {
-       "title": "Envoyer la playlist",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2027-06-16",
-       "duration": 16,
-       "notes": "",
-       "id": "t-dj-st02"
-      }
-     ]
-    },
-    {
-     "id": "t-robes",
-     "title": "Déterminer la robe et le costume",
-     "assignee": "Magalie",
-     "startDate": "2026-12-18",
-     "duration": 106,
-     "status": "TODO",
-     "priority": "HIGH",
-     "rank": 6,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir la boutique",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2026-12-18",
-       "duration": 21,
-       "notes": "",
-       "id": "t-robes-st00"
-      },
-      {
-       "title": "Commander la robe",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-01-08",
-       "duration": 15,
-       "notes": "",
-       "id": "t-robes-st01"
-      },
-      {
-       "title": "Essayages finaux",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-03-13",
-       "duration": 21,
-       "notes": "",
-       "id": "t-robes-st02"
-      }
-     ]
-    },
-    {
-     "id": "t-fleurs",
-     "title": "Déterminer le fleuriste",
-     "assignee": "Magalie",
-     "startDate": "2027-01-17",
-     "duration": 31,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 7,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir le fleuriste",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-01-17",
-       "duration": 21,
-       "notes": "",
-       "id": "t-fleurs-st00"
-      },
-      {
-       "title": "Valider les compositions",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-02-07",
-       "duration": 10,
-       "notes": "",
-       "id": "t-fleurs-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-mua",
-     "title": "Déterminer la maquilleuse et la coiffeuse",
-     "assignee": "Magalie",
-     "startDate": "2027-02-16",
-     "duration": 46,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 8,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir la prestataire",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-02-16",
-       "duration": 21,
-       "notes": "",
-       "id": "t-mua-st00"
-      },
-      {
-       "title": "Essai maquillage et coiffure",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-04-22",
-       "duration": 11,
-       "notes": "",
-       "id": "t-mua-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-chant",
-     "title": "Déterminer les chanteurs",
-     "assignee": "Témoins",
-     "startDate": "2027-03-03",
-     "duration": 31,
-     "status": "TODO",
-     "priority": "LOW",
-     "rank": 9,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir les chanteurs",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2027-03-03",
-       "duration": 21,
-       "notes": "",
-       "id": "t-chant-st00"
-      },
-      {
-       "title": "Choisir les morceaux",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2027-03-24",
-       "duration": 10,
-       "notes": "",
-       "id": "t-chant-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-danse",
-     "title": "Déterminer le cours de danse",
-     "assignee": "Magalie",
-     "startDate": "2027-04-02",
-     "duration": 76,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 10,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir le professeur",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-04-02",
-       "duration": 16,
-       "notes": "",
-       "id": "t-danse-st00"
-      },
-      {
-       "title": "Séances d'ouverture de bal",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-05-02",
-       "duration": 46,
-       "notes": "",
-       "id": "t-danse-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-ateliers",
-     "title": "Déterminer les animations",
-     "assignee": "Témoins",
-     "startDate": "2027-04-17",
-     "duration": 31,
-     "status": "TODO",
-     "priority": "LOW",
-     "rank": 11,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir les ateliers",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2027-04-17",
-       "duration": 21,
-       "notes": "",
-       "id": "t-ateliers-st00"
-      },
-      {
-       "title": "Réserver",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2027-05-08",
-       "duration": 10,
-       "notes": "",
-       "id": "t-ateliers-st01"
-      }
-     ]
+      id: 'demo-suivi', title: 'Suivi régulier', category: 'Rituels',
+      startDate: jour(0), duration: 90, color: 'from-amber-500 to-orange-600',
+      tasks: [
+        { id: 'demo-s1', title: 'Point hebdomadaire', assignee: 'Moi', startDate: jour(0), duration: 90,
+          status: 'IN_PROGRESS', priority: 'LOW', notes: 'Une tâche peut aussi servir de rappel qui court sur toute la période.', subtasks: [] },
+        { id: 'demo-s2', title: 'Revue de fin de mois', assignee: 'Camille', startDate: jour(25), duration: 5,
+          status: 'TODO', priority: 'MEDIUM', notes: '', subtasks: [] }
+      ]
     }
-   ]
-  },
-  {
-   "id": "proj-invites",
-   "title": "Mariage — Invités & logistique",
-   "category": "Logistique",
-   "startDate": "2026-08-10",
-   "duration": 336,
-   "color": "from-emerald-500 to-teal-600",
-   "tasks": [
-    {
-     "id": "t-budget",
-     "title": "Fixer le budget",
-     "assignee": "Moi",
-     "startDate": "2026-08-10",
-     "duration": 56,
-     "status": "IN_PROGRESS",
-     "priority": "URGENT",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Arrêter l'enveloppe globale",
-       "assignee": "Moi",
-       "status": "IN_PROGRESS",
-       "startDate": "2026-08-10",
-       "duration": 15,
-       "notes": "",
-       "id": "t-budget-st00"
-      },
-      {
-       "title": "Suivre les acomptes",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-08-25",
-       "duration": 41,
-       "notes": "",
-       "id": "t-budget-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-liste",
-     "title": "Arrêter la liste des invités",
-     "assignee": "Magalie",
-     "startDate": "2026-08-17",
-     "duration": 69,
-     "status": "IN_PROGRESS",
-     "priority": "HIGH",
-     "rank": 1,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Recenser famille et amis",
-       "assignee": "Magalie",
-       "status": "IN_PROGRESS",
-       "startDate": "2026-08-17",
-       "duration": 22,
-       "notes": "",
-       "id": "t-liste-st00"
-      },
-      {
-       "title": "Arrêter le nombre final",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2026-09-08",
-       "duration": 47,
-       "notes": "",
-       "id": "t-liste-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-std",
-     "title": "Envoyer les save the date",
-     "assignee": "Magalie",
-     "startDate": "2026-10-04",
-     "duration": 31,
-     "status": "TODO",
-     "priority": "HIGH",
-     "rank": 2,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir le modèle",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2026-10-04",
-       "duration": 16,
-       "notes": "",
-       "id": "t-std-st00"
-      },
-      {
-       "title": "Envoyer",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2026-10-20",
-       "duration": 15,
-       "notes": "",
-       "id": "t-std-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-fairepart",
-     "title": "Envoyer les faire-part",
-     "assignee": "Magalie",
-     "startDate": "2027-02-01",
-     "duration": 31,
-     "status": "TODO",
-     "priority": "HIGH",
-     "rank": 3,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Commander les faire-part",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-02-01",
-       "duration": 16,
-       "notes": "",
-       "id": "t-fairepart-st00"
-      },
-      {
-       "title": "Envoyer",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-02-17",
-       "duration": 15,
-       "notes": "",
-       "id": "t-fairepart-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-heberg",
-     "title": "Organiser l'hébergement",
-     "assignee": "Témoins",
-     "startDate": "2027-01-02",
-     "duration": 61,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 4,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Bloquer les chambres alentours",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2027-01-02",
-       "duration": 26,
-       "notes": "",
-       "id": "t-heberg-st00"
-      },
-      {
-       "title": "Communiquer la liste aux invités",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2027-01-28",
-       "duration": 35,
-       "notes": "",
-       "id": "t-heberg-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-navettes",
-     "title": "Déterminer le transporteur",
-     "assignee": "Témoins",
-     "startDate": "2027-04-02",
-     "duration": 31,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 5,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir la navette",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2027-04-02",
-       "duration": 21,
-       "notes": "",
-       "id": "t-navettes-st00"
-      },
-      {
-       "title": "Réserver",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2027-04-23",
-       "duration": 10,
-       "notes": "",
-       "id": "t-navettes-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-table",
-     "title": "Faire le plan de table",
-     "assignee": "Magalie",
-     "startDate": "2027-06-01",
-     "duration": 41,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 6,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Collecter les réponses",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-06-01",
-       "duration": 26,
-       "notes": "",
-       "id": "t-table-st00"
-      },
-      {
-       "title": "Finaliser le plan",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-06-27",
-       "duration": 15,
-       "notes": "",
-       "id": "t-table-st01"
-      }
-     ]
-    }
-   ]
-  },
-  {
-   "id": "proj-jourj",
-   "title": "Mariage — Jour J",
-   "category": "Jour J",
-   "startDate": "2027-03-03",
-   "duration": 151,
-   "color": "from-rose-500 to-pink-600",
-   "tasks": [
-    {
-     "id": "t-deco",
-     "title": "Déterminer la décoration",
-     "assignee": "Magalie",
-     "startDate": "2027-03-03",
-     "duration": 91,
-     "status": "TODO",
-     "priority": "MEDIUM",
-     "rank": 0,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Choisir le thème",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-03-03",
-       "duration": 31,
-       "notes": "",
-       "id": "t-deco-st00"
-      },
-      {
-       "title": "Louer le mobilier",
-       "assignee": "Magalie",
-       "status": "TODO",
-       "startDate": "2027-05-02",
-       "duration": 31,
-       "notes": "",
-       "id": "t-deco-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-ceremonie",
-     "title": "Préparer la cérémonie",
-     "assignee": "Moi",
-     "startDate": "2027-05-02",
-     "duration": 76,
-     "status": "TODO",
-     "priority": "HIGH",
-     "rank": 1,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Écrire les vœux",
-       "assignee": "Moi",
-       "status": "TODO",
-       "startDate": "2027-05-02",
-       "duration": 46,
-       "notes": "",
-       "id": "t-ceremonie-st00"
-      },
-      {
-       "title": "Briefer les témoins",
-       "assignee": "Témoins",
-       "status": "TODO",
-       "startDate": "2027-07-01",
-       "duration": 16,
-       "notes": "",
-       "id": "t-ceremonie-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-deroule",
-     "title": "Écrire le déroulé de la journée",
-     "assignee": "Wedding planner",
-     "startDate": "2027-06-01",
-     "duration": 51,
-     "status": "TODO",
-     "priority": "HIGH",
-     "rank": 2,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Rédiger le timing",
-       "assignee": "Wedding planner",
-       "status": "TODO",
-       "startDate": "2027-06-01",
-       "duration": 31,
-       "notes": "",
-       "id": "t-deroule-st00"
-      },
-      {
-       "title": "Partager aux prestataires",
-       "assignee": "Wedding planner",
-       "status": "TODO",
-       "startDate": "2027-07-11",
-       "duration": 11,
-       "notes": "",
-       "id": "t-deroule-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-install",
-     "title": "Répétition et installation",
-     "assignee": "Wedding planner",
-     "startDate": "2027-07-29",
-     "duration": 2,
-     "status": "TODO",
-     "priority": "URGENT",
-     "rank": 3,
-     "notes": "",
-     "subtasks": [
-      {
-       "title": "Répétition générale",
-       "assignee": "Wedding planner",
-       "status": "TODO",
-       "startDate": "2027-07-29",
-       "duration": 1,
-       "notes": "",
-       "id": "t-install-st00"
-      },
-      {
-       "title": "Installation au domaine",
-       "assignee": "Wedding planner",
-       "status": "TODO",
-       "startDate": "2027-07-30",
-       "duration": 1,
-       "notes": "",
-       "id": "t-install-st01"
-      }
-     ]
-    },
-    {
-     "id": "t-jourj",
-     "title": "💍 Mariage — cérémonie & réception",
-     "assignee": "Moi",
-     "startDate": "2027-07-31",
-     "duration": 1,
-     "status": "TODO",
-     "priority": "URGENT",
-     "rank": 4,
-     "notes": "Le grand jour.",
-     "subtasks": []
-    }
-   ]
-  }
- ],
- "planning": [
-  {
-   "title": "Signature contrat Maucaillou",
-   "tag": "Lieu",
-   "color": "from-indigo-500 to-violet-600",
-   "assignee": "Moi",
-   "startDate": "2026-08-13",
-   "slot": "AM",
-   "duration": 0.5,
-   "id": "pe-seed-00"
-  },
-  {
-   "title": "Virement acompte lieu",
-   "tag": "Lieu",
-   "color": "from-emerald-500 to-teal-600",
-   "assignee": "Moi",
-   "startDate": "2026-08-14",
-   "slot": "PM",
-   "duration": 0.5,
-   "id": "pe-seed-01"
-  },
-  {
-   "title": "Dégustation Damien Bernardet",
-   "tag": "Traiteur",
-   "color": "from-rose-500 to-pink-600",
-   "assignee": "Magalie",
-   "startDate": "2026-08-20",
-   "slot": "AM",
-   "duration": 1,
-   "id": "pe-seed-02"
-  },
-  {
-   "title": "Point hebdo prestataires",
-   "tag": "Rituel",
-   "color": "from-slate-500 to-slate-700",
-   "assignee": "Wedding planner",
-   "startDate": "2026-08-17",
-   "slot": "AM",
-   "duration": 0.5,
-   "id": "pe-seed-03"
-  },
-  {
-   "title": "Repérage & plan de salle",
-   "tag": "Lieu",
-   "color": "from-indigo-500 to-violet-600",
-   "assignee": "Magalie",
-   "startDate": "2026-08-19",
-   "slot": "PM",
-   "duration": 1.5,
-   "id": "pe-seed-04"
-  },
-  {
-   "title": "Rendez-vous wedding planner",
-   "tag": "Wedding planner",
-   "color": "from-purple-500 to-fuchsia-600",
-   "assignee": "Moi",
-   "startDate": "2026-08-25",
-   "slot": "PM",
-   "duration": 0.5,
-   "id": "pe-seed-05"
-  },
-  {
-   "title": "Réservation chambres d'hôtes",
-   "tag": "Lieu",
-   "color": "from-cyan-500 to-blue-600",
-   "assignee": "Magalie",
-   "startDate": "2026-08-26",
-   "slot": "AM",
-   "duration": 0.5,
-   "id": "pe-seed-06"
-  },
-  {
-   "title": "Atelier budget",
-   "tag": "Budget",
-   "color": "from-amber-500 to-orange-600",
-   "assignee": "Moi",
-   "startDate": "2026-08-27",
-   "slot": "PM",
-   "duration": 0.5,
-   "id": "pe-seed-07"
-  }
- ],
- "notes": [
-  {
-   "title": "Maucaillou — ce que comprend l'offre",
-   "color": "indigo",
-   "projectId": "proj-prestas",
-   "pinned": true,
-   "body": "Formule Élégance à 4 850 €.\n\nCompris : salle des Notables le samedi de 10h à 3h et le dimanche de 10h à 18h,\naccès au parc, espace traiteur, forfait ménage, barriques, parking, fermeture du domaine à 3h.\n\nEn plus : deux services de vin du château imposés (environ une bouteille pour 5 personnes par service).\nHébergement sur place : 5 chambres d'hôtes entre 140 € et 160 € la nuit, petit-déjeuner inclus.",
-   "id": "note-seed-00"
-  },
-  {
-   "title": "Questions restantes pour le domaine",
-   "color": "cyan",
-   "projectId": "proj-prestas",
-   "pinned": false,
-   "body": "1. Heure exacte de fin de la musique et de fermeture.\n2. Quantité précise des deux services de vin imposés.\n3. Mobilier, vaisselle et nappage : inclus ou à louer ?\n4. Capacité assise maximum en cas de pluie.\n5. Accès des prestataires la veille pour l'installation.\n6. Échéancier de paiement et conditions d'annulation.",
-   "id": "note-seed-01"
-  },
-  {
-   "title": "Archive — prestataires écartés",
-   "color": "rose",
-   "projectId": "",
-   "pinned": false,
-   "body": "Lieux consultés puis écartés : Arsac, Duplessis, Haut Breton Larigaudière, Balac, Relais Margaux,\nPontac Lynch, Segondillac, Giscours, Du Tertre, Dauzac, Domaine Cordet, Domaine Gouat,\nMarquis de Termes, Vignobles Bernaleau, Château Rauzan-Ségla.\n\nTraiteurs consultés puis écartés : Amchef à domicile, Roselyne Traiteur, Blaye en Bouche,\nTottoc Cuisine, Jean-Michel Crespo.\n\nConservé au cas où il faudrait rouvrir une piste.",
-   "id": "note-seed-02"
-  },
-  {
-   "title": "Rétroplanning — les jalons",
-   "color": "amber",
-   "projectId": "",
-   "pinned": true,
-   "body": "Mariage le samedi 31 juillet 2027.\n\n12 mois avant : lieu, traiteur, wedding planner.\n10 mois avant : save the date, photographe.\n8 mois avant : vidéaste, DJ, robe.\n6 mois avant : fleuriste, faire-part, hébergement.\n5 mois avant : maquillage, coiffure, chanteurs.\n4 mois avant : cours de danse, navettes, décoration.\n2 mois avant : plan de table, essayages finaux, playlist.\nLa veille : répétition et installation.",
-   "id": "note-seed-03"
-  }
- ]
+  ],
+  planning: [
+    { id: 'demo-pe-0', title: 'Réunion de lancement', tag: 'Cadrage', color: 'from-indigo-500 to-violet-600', assignee: 'Moi', startDate: jour(1), slot: 'AM', duration: 0.5 },
+    { id: 'demo-pe-1', title: 'Atelier besoin', tag: 'Cadrage', color: 'from-emerald-500 to-teal-600', assignee: 'Camille', startDate: jour(1), slot: 'PM', duration: 0.5 },
+    { id: 'demo-pe-2', title: 'Rédaction du cadrage', tag: 'Cadrage', color: 'from-indigo-500 to-violet-600', assignee: 'Moi', startDate: jour(2), slot: 'AM', duration: 1.5 },
+    { id: 'demo-pe-3', title: 'Point hebdomadaire', tag: 'Rituel', color: 'from-slate-500 to-slate-700', assignee: 'Moi', startDate: jour(4), slot: 'AM', duration: 0.5 },
+    { id: 'demo-pe-4', title: 'Chiffrage', tag: 'Cadrage', color: 'from-amber-500 to-orange-600', assignee: 'Camille', startDate: jour(4), slot: 'PM', duration: 1 },
+    { id: 'demo-pe-5', title: 'Relecture', tag: 'Qualité', color: 'from-purple-500 to-fuchsia-600', assignee: 'Moi', startDate: jour(7), slot: 'PM', duration: 0.5 },
+    { id: 'demo-pe-6', title: 'Réunion de suivi', tag: 'Rituel', color: 'from-slate-500 to-slate-700', assignee: 'Camille', startDate: jour(8), slot: 'AM', duration: 0.5 },
+    { id: 'demo-pe-7', title: 'Préparation de la revue', tag: 'Qualité', color: 'from-cyan-500 to-blue-600', assignee: 'Moi', startDate: jour(9), slot: 'AM', duration: 1 }
+  ],
+  notes: [
+    { id: 'demo-note-0', title: 'Bienvenue', color: 'indigo', projectId: 'demo-prise-en-main', pinned: true,
+      body: "Ce tableau est à vous : renommez-le, changez le préfixe des références et la date d'échéance dans « Partager ».\n\n"
+        + "Quatre vues, une seule base de données :\n"
+        + "• Roadmap — la frise, sur trois niveaux : projet, tâche, sous-tâche.\n"
+        + "• Kanban — les mêmes tâches en colonnes, groupables par statut, par personne ou par priorité.\n"
+        + "• Planning — qui fait quoi, matin et après-midi.\n"
+        + "• Notes — ce bloc-notes, pour tout ce qui n'est pas une tâche." },
+    { id: 'demo-note-1', title: 'Travailler à plusieurs', color: 'emerald', projectId: '', pinned: true,
+      body: "Envoyez l'adresse du site et le mot de passe : chacun retrouve le tableau depuis n'importe quel ordinateur.\n\n"
+        + "Le tableau est enregistré chiffré dans votre dépôt, sur une branche séparée du site.\n"
+        + "Pour enregistrer ses propres modifications, il faut aussi coller un jeton (guide fourni dans « Partager »)." },
+    { id: 'demo-note-2', title: 'Bloc-notes', color: 'amber', projectId: '', pinned: false,
+      body: "Devis, contacts, comparatifs, idées en vrac : tout ce qui encombrerait les autres vues.\n\nUne note peut être rattachée à un projet." },
+    { id: 'demo-note-3', title: 'Raccourcis utiles', color: 'cyan', projectId: '', pinned: false,
+      body: "1 2 3 4 — changer de vue\nT — revenir à aujourd'hui\nF — afficher toute la période\n← → — avancer d'une semaine\nCtrl+Z — annuler\nÉchap — fermer" }
+  ]
 };
+
 const SEED = normalizeData(SEED_RAW);
 
 const loadJson = (key, fallback) => {
@@ -1280,7 +461,16 @@ const SYNC_KEY = 'auraplan_sync_v22';
 const PASS_KEY = 'auraplan_pass_v22';
 const FICHIER = 'tableau.json';
 
-// Le dépôt se déduit de l'adresse : https://compte.github.io/mariage/ -> compte / mariage
+// Les données vivent sur leur propre branche : la branche du site n'est jamais
+// touchée, donc GitHub Pages ne reconstruit pas le site à chaque enregistrement.
+const BRANCHE_DONNEES = 'auraplan-donnees';
+
+// Un enregistrement = un commit. On regroupe donc les modifications rapprochées
+// au lieu d'écrire à chaque frappe.
+const DELAI_ENVOI = 2500;        // on laisse retomber la salve
+const INTERVALLE_MINI = 20000;   // et jamais plus d'un commit toutes les 20 s
+
+// Le dépôt se déduit de l'adresse : https://compte.github.io/tableau/ -> compte / tableau
 const detecterDepot = () => {
   try {
     const hote = String(window.location.hostname || '');
@@ -1322,19 +512,17 @@ const deriverCle = async (motDePasse, sel) => {
     base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 };
 // Le texte est compressé avant d'être chiffré : le fichier déposé est
-// environ dix fois plus léger, ce qui allège aussi l'historique du dépôt.
+// bien plus léger, ce qui allège d'autant l'historique du dépôt.
 const traverserFlux = async (flux, octets) => {
   const ecrivain = flux.writable.getWriter();
   ecrivain.write(octets);
   ecrivain.close();
   const lecteur = flux.readable.getReader();
-  const morceaux = [];
-  let total = 0;
+  const morceaux = []; let total = 0;
   for (;;) {
     const { done, value } = await lecteur.read();
     if (done) break;
-    morceaux.push(value);
-    total += value.length;
+    morceaux.push(value); total += value.length;
   }
   const sortie = new Uint8Array(total);
   let position = 0;
@@ -1375,7 +563,7 @@ const COLLECTIONS = ['projects', 'planning', 'notes'];
 // Représentation fichier : chaque fiche est une entrée repérée par son identifiant,
 // ce qui permet de fusionner deux versions sans rien écraser à l'aveugle.
 const versFichier = (data) => {
-  const out = { meta: { columnLabels: data.columnLabels, event: data.event } };
+  const out = { meta: { board: data.board, columnLabels: data.columnLabels, event: data.event } };
   COLLECTIONS.forEach((c) => {
     const m = {};
     (data[c] || []).forEach((item, i) => { m[item.id] = { ...item, __ordre: i }; });
@@ -1387,7 +575,7 @@ const versFichier = (data) => {
 const depuisFichier = (brut) => {
   const o = brut && typeof brut === 'object' ? brut : {};
   const meta = o.meta || {};
-  const out = { columnLabels: meta.columnLabels, event: meta.event };
+  const out = { board: meta.board, columnLabels: meta.columnLabels, event: meta.event };
   COLLECTIONS.forEach((c) => {
     const liste = [];
     Object.keys(o[c] || {}).forEach((id) => { if (o[c][id]) liste.push(o[c][id]); });
@@ -1613,7 +801,8 @@ function AuraPlanApp() {
       actif: enregistre.actif !== false,
       owner: enregistre.owner || auto.owner,
       repo: enregistre.repo || auto.repo,
-      branch: enregistre.branch || 'main',
+      brancheSite: enregistre.brancheSite || 'main',
+      branch: enregistre.branch || BRANCHE_DONNEES,
       token: enregistre.token || '',
       nom: enregistre.nom || ''
     };
@@ -2351,11 +1540,12 @@ function AuraPlanApp() {
   const dernierFichier = useRef(null);           // { contenu, majs, supprimes, presence }
   const dernierDistant = useRef(null);           // dernière version connue du dépôt
   const shaRef = useRef(null);
-  const etagRef = useRef(null);        // empreinte de la dernière version lue
+  const etagRef = useRef(null);                  // empreinte de la dernière version lue
   const derniereActivite = useRef(Date.now());
   const appliqueDistant = useRef(false);
   const enCours = useRef(false);
   const aEcrire = useRef(false);
+  const derniereEcriture = useRef(0);
   const monAppareil = useRef(idAppareil()).current;
 
   const partageActif = unlocked && sync.actif && !!password && !!sync.owner && !!sync.repo;
@@ -2400,6 +1590,27 @@ function AuraPlanApp() {
   }, [data]);
 
   const cheminApi = useCallback(() => `https://api.github.com/repos/${sync.owner}/${sync.repo}/contents/${FICHIER}`, [sync.owner, sync.repo]);
+  const baseGit = useCallback(() => `https://api.github.com/repos/${sync.owner}/${sync.repo}/git`, [sync.owner, sync.repo]);
+  const entetesGit = useCallback(() => ({ Authorization: `Bearer ${sync.token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }), [sync.token]);
+
+  const brancheVerifiee = useRef(false);
+
+  // Crée la branche de données si elle n'existe pas encore. Une seule fois.
+  const assurerBranche = useCallback(async () => {
+    if (brancheVerifiee.current || !sync.token || sync.branch === sync.brancheSite) return;
+    const r = await fetch(`${baseGit()}/ref/heads/${encodeURIComponent(sync.branch)}`, { headers: entetesGit() });
+    if (r.ok) { brancheVerifiee.current = true; return; }
+    if (r.status !== 404) { brancheVerifiee.current = true; return; }
+    const source = await fetch(`${baseGit()}/ref/heads/${encodeURIComponent(sync.brancheSite)}`, { headers: entetesGit() });
+    if (!source.ok) throw new Error('branche du site introuvable (' + sync.brancheSite + ')');
+    const info = await source.json();
+    const creation = await fetch(`${baseGit()}/refs`, {
+      method: 'POST', headers: entetesGit(),
+      body: JSON.stringify({ ref: 'refs/heads/' + sync.branch, sha: info.object && info.object.sha })
+    });
+    if (!creation.ok && creation.status !== 422) throw new Error('création de la branche impossible (' + creation.status + ')');
+    brancheVerifiee.current = true;
+  }, [sync.token, sync.branch, sync.brancheSite, baseGit, entetesGit]);
 
   const lireDistant = useCallback(async (cle) => {
     // Avec un jeton : l'API, toujours fraîche. Sans jeton : le fichier brut, avec anti-cache.
@@ -2407,7 +1618,7 @@ function AuraPlanApp() {
       const entetes = { Authorization: `Bearer ${sync.token}`, Accept: 'application/vnd.github+json' };
       if (etagRef.current) entetes['If-None-Match'] = etagRef.current;
       const r = await fetch(`${cheminApi()}?ref=${encodeURIComponent(sync.branch)}`, { headers: entetes, cache: 'no-store' });
-      if (r.status === 304) return { inchange: true };          // rien n'a bougé : aucun octet transféré
+      if (r.status === 304) return { inchange: true };     // rien n'a bougé : aucun octet transféré, et hors quota
       try { const et = r.headers && r.headers.get && r.headers.get('ETag'); if (et) etagRef.current = et; } catch (e) { /* no-op */ }
       if (r.status === 404) return { absent: true };
       if (r.status === 401 || r.status === 403) throw new Error(r.status === 401 ? 'jeton refusé' : 'accès refusé (droits du jeton ?)');
@@ -2455,6 +1666,7 @@ function AuraPlanApp() {
     try {
       cle = await deriverCle(password, sync.owner + '/' + sync.repo);
       setSyncEtat((p) => ({ ...p, etat: 'travail', message: '' }));
+      if (peutEcrire) await assurerBranche();
 
       let distant = null;
       const lu = await lireDistant(cle);
@@ -2498,7 +1710,10 @@ function AuraPlanApp() {
 
       // Écriture : seulement si nous avons du neuf, ou si le dépôt est vide.
       const distantDiffere = !distant || JSON.stringify(distant.contenu) !== JSON.stringify(fusion.contenu);
-      const doitEcrire = peutEcrire && (forcerEcriture || aEcrire.current || !distant || distantDiffere);
+      // Une relève ordinaire n'écrit pas : elle laisse le regroupement faire son travail,
+      // sinon chaque passage de 8 s produirait son propre commit.
+      const fenetreOuverte = forcerEcriture || (Date.now() - derniereEcriture.current) >= INTERVALLE_MINI;
+      const doitEcrire = peutEcrire && fenetreOuverte && (forcerEcriture || aEcrire.current || !distant || distantDiffere);
 
       if (doitEcrire) {
         const presence = { ...(fusion.presence || {}) };
@@ -2506,12 +1721,7 @@ function AuraPlanApp() {
         const paquet = await chiffrerTexte(cle, JSON.stringify({
           contenu: fusion.contenu, majs: fusion.majs, supprimes: fusion.supprimes, presence
         }));
-        const charge = {
-          format: 'auraplan1',
-          compresse: paquet.compresse,
-          modifie: new Date().toISOString(),
-          charge: paquet.charge
-        };
+        const charge = { format: 'auraplan1', compresse: paquet.compresse, modifie: new Date().toISOString(), charge: paquet.charge };
         const res = await ecrireDistant(charge, shaRef.current);
         if (res && res.conflit) {                       // quelqu'un a écrit entre-temps : on refait un tour
           shaRef.current = null;
@@ -2520,7 +1730,9 @@ function AuraPlanApp() {
           return;
         }
         aEcrire.current = false;
+        derniereEcriture.current = Date.now();
         etagRef.current = null;
+        try { setSyncEtat((p) => ({ ...p, poids: JSON.stringify(charge).length })); } catch (e) { /* no-op */ }
         dernierDistant.current = { contenu: fusion.contenu, majs: fusion.majs, supprimes: fusion.supprimes, presence };
         dernierFichier.current.presence = presence;
         setSyncEtat((p) => ({ ...p, etat: 'ok', message: '', dernier: Date.now(), participants, ecritures: p.ecritures + 1 }));
@@ -2532,9 +1744,48 @@ function AuraPlanApp() {
     } finally {
       enCours.current = false;
     }
-  }, [partageActif, peutEcrire, password, sync.owner, sync.repo, sync.nom, lireDistant, ecrireDistant, monAppareil]);
+  }, [partageActif, peutEcrire, password, sync.owner, sync.repo, sync.nom, lireDistant, ecrireDistant, monAppareil, assurerBranche]);
 
   const collabNomParDefaut = 'Invité';
+
+  // Réécrit la branche de données avec un unique commit : l'historique des
+  // enregistrements repart de zéro, le contenu reste identique.
+  const compacterHistorique = useCallback(async () => {
+    if (!peutEcrire) { pushToast('Un jeton est nécessaire', 'error'); return; }
+    if (sync.branch === sync.brancheSite) { pushToast('Impossible sur la branche du site', 'error'); return; }
+    if (!window.confirm('Repartir d’un historique vierge pour les données ?\n\nLe tableau actuel est conservé à l’identique ; seules les anciennes versions enregistrées disparaissent.')) return;
+    try {
+      setSyncEtat((p) => ({ ...p, etat: 'travail' }));
+      const actuel = await fetch(`${cheminApi()}?ref=${encodeURIComponent(sync.branch)}`, { headers: entetesGit() });
+      if (!actuel.ok) throw new Error('lecture impossible (' + actuel.status + ')');
+      const contenu = (await actuel.json()).content;
+
+      const blob = await fetch(`${baseGit()}/blobs`, { method: 'POST', headers: entetesGit(),
+        body: JSON.stringify({ content: String(contenu).replace(/\n/g, ''), encoding: 'base64' }) });
+      if (!blob.ok) throw new Error('écriture impossible (' + blob.status + ')');
+      const blobSha = (await blob.json()).sha;
+
+      const arbre = await fetch(`${baseGit()}/trees`, { method: 'POST', headers: entetesGit(),
+        body: JSON.stringify({ tree: [{ path: FICHIER, mode: '100644', type: 'blob', sha: blobSha }] }) });
+      if (!arbre.ok) throw new Error('arborescence impossible (' + arbre.status + ')');
+      const arbreSha = (await arbre.json()).sha;
+
+      const commit = await fetch(`${baseGit()}/commits`, { method: 'POST', headers: entetesGit(),
+        body: JSON.stringify({ message: `Tableau — historique compacté le ${new Date().toLocaleDateString('fr-FR')}`, tree: arbreSha, parents: [] }) });
+      if (!commit.ok) throw new Error('commit impossible (' + commit.status + ')');
+      const commitSha = (await commit.json()).sha;
+
+      const ref = await fetch(`${baseGit()}/refs/heads/${encodeURIComponent(sync.branch)}`, { method: 'PATCH', headers: entetesGit(),
+        body: JSON.stringify({ sha: commitSha, force: true }) });
+      if (!ref.ok) throw new Error('mise à jour impossible (' + ref.status + ')');
+
+      shaRef.current = null; etagRef.current = null;
+      pushToast('Historique des données remis à neuf', 'success');
+      setSyncEtat((p) => ({ ...p, etat: 'ok', message: '', ecritures: 0 }));
+    } catch (err) {
+      setSyncEtat((p) => ({ ...p, etat: 'erreur', message: String((err && err.message) || err) }));
+    }
+  }, [peutEcrire, sync.branch, sync.brancheSite, cheminApi, baseGit, entetesGit, pushToast]);
 
   // Première synchronisation, puis relève régulière.
   useEffect(() => {
@@ -2547,7 +1798,7 @@ function AuraPlanApp() {
       if (!sync.token) return 30000;
       if (inactifDepuis < 3 * 60000) return 8000;      // on travaille : relève rapprochée
       if (inactifDepuis < 20 * 60000) return 30000;    // pause courte
-      return 120000;                                    // onglet oublié en arrière-plan
+      return 120000;                                    // onglet laissé ouvert en arrière-plan
     };
     let minuteur = window.setTimeout(function boucle() {
       tour();
@@ -2558,14 +1809,28 @@ function AuraPlanApp() {
     return () => { vivant = false; window.clearTimeout(minuteur); document.removeEventListener('visibilitychange', surRetour); };
   }, [partageActif, synchroniser, sync.token]);
 
-  // Envoi rapide après une modification locale.
+  // Envoi groupé : une salve de modifications ne produit qu'un seul commit.
   const minuteurEnvoi = useRef(null);
   useEffect(() => {
     if (!peutEcrire) return undefined;
     if (minuteurEnvoi.current) window.clearTimeout(minuteurEnvoi.current);
-    minuteurEnvoi.current = window.setTimeout(() => { if (aEcrire.current) synchroniser(true); }, 1500);
+    const depuis = Date.now() - derniereEcriture.current;
+    const attente = Math.max(DELAI_ENVOI, INTERVALLE_MINI - depuis);
+    minuteurEnvoi.current = window.setTimeout(() => {
+      if (aEcrire.current) { derniereEcriture.current = Date.now(); synchroniser(true); }
+    }, attente);
     return () => { if (minuteurEnvoi.current) window.clearTimeout(minuteurEnvoi.current); };
   }, [data, peutEcrire, synchroniser]);
+
+  // Rien ne doit se perdre si l'onglet est fermé pendant l'attente.
+  useEffect(() => {
+    if (!peutEcrire) return undefined;
+    const vider = () => { if (aEcrire.current) { derniereEcriture.current = Date.now(); synchroniser(true); } };
+    const surVisibilite = () => { if (document.visibilityState === 'hidden') vider(); };
+    window.addEventListener('pagehide', vider);
+    document.addEventListener('visibilitychange', surVisibilite);
+    return () => { window.removeEventListener('pagehide', vider); document.removeEventListener('visibilitychange', surVisibilite); };
+  }, [peutEcrire, synchroniser]);
 
   const participantsActifs = useMemo(() => {
     const limite = Date.now() - 5 * 60000;
@@ -2660,7 +1925,7 @@ function AuraPlanApp() {
             className={`relative flex h-full flex-col justify-between overflow-visible border-r ${T.grid} ${d.getDay() === 1 ? 'border-l-2 border-l-indigo-500/40' : ''}
               ${isEvent ? 'jour-j-col border-x-2 border-x-rose-400/80 text-rose-300' : isToday ? 'bg-indigo-500/25 text-indigo-300' : isWeekend ? (isDark ? 'bg-white/[0.03] text-slate-500' : 'bg-slate-100 text-slate-400') : T.muted}`}>
             {isEvent ? (
-              <span className="jour-j-pin pointer-events-none absolute -top-0.5 left-1/2 z-20 -translate-x-1/2 text-[10px]" title={`${event.label} — ${formatDateFr(event.date)}`}>💍</span>
+              <span className="jour-j-pin pointer-events-none absolute -top-0.5 left-1/2 z-20 -translate-x-1/2 text-[10px]" title={`${event.label} — ${formatDateFr(event.date)}`}>🚩</span>
             ) : null}
             {ultra ? (
               <div className="flex h-full items-end justify-center pb-1">
@@ -2751,14 +2016,14 @@ function AuraPlanApp() {
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-600 text-xl font-black text-white shadow-lg">Δ</div>
             <div>
               <h1 className="text-sm font-extrabold tracking-tight">AuraPlan Studio</h1>
-              <p className={`text-[11px] ${T.faint}`}>Le tableau du mariage</p>
+              <p className={`text-[11px] ${T.faint}`}>Roadmap · Kanban · Planning · Notes</p>
             </div>
           </div>
 
           <form onSubmit={(e) => { e.preventDefault(); enterBoard(passDraft, false); }}>
             <Field T={T} label="Votre prénom" hint="Pour que les autres sachent qui a travaillé sur le tableau.">
               <input className={inputCls} value={sync.nom}
-                onChange={(e) => setSync({ ...sync, nom: e.target.value.slice(0, 40) })} placeholder="Ex. Magalie" />
+                onChange={(e) => setSync({ ...sync, nom: e.target.value.slice(0, 40) })} placeholder="Ex. Camille" />
             </Field>
             <div className="mt-3" />
             <Field T={T} label="Mot de passe partagé" hint="Le même pour tout le monde : il ouvre le tableau et chiffre les échanges.">
@@ -2800,7 +2065,7 @@ function AuraPlanApp() {
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-600 text-lg font-black text-white shadow-lg shadow-indigo-950/50">Δ</div>
             <div className="leading-tight">
-              <div className="text-sm font-extrabold tracking-tight">AuraPlan Studio</div>
+              <div className="text-sm font-extrabold tracking-tight">{data.board.titre}</div>
               <div className={`text-[10px] font-medium ${T.faint}`}>Projet › tâche › sous-tâche</div>
             </div>
           </div>
@@ -2878,7 +2143,7 @@ function AuraPlanApp() {
               <>
                 <button type="button" onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)} className={btnSecondary}>{isLeftPanelOpen ? 'Réduire la colonne' : 'Afficher la colonne'}</button>
                 <button type="button" onClick={() => setIsRightPanelOpen(!isRightPanelOpen)} className={btnSecondary}>{isRightPanelOpen ? 'Masquer le détail' : 'Afficher le détail'}</button>
-                <button type="button" onClick={scrollToEvent} className={btnSecondary} title={`Aller au ${event.label}`}>💍 Jour J</button>
+                <button type="button" onClick={scrollToEvent} className={btnSecondary} title={`Aller à : ${event.label}`}>🚩 {event.label}</button>
                 <button type="button" onClick={scrollToToday} className={btnSecondary}>Aujourd'hui</button>
                 <span className={`ml-1 hidden text-[11px] 2xl:inline ${T.faint}`}>Clic maintenu sur la grille pour faire défiler · ← → pour avancer d'une semaine</span>
               </>
@@ -2910,7 +2175,7 @@ function AuraPlanApp() {
             <button type="button" onClick={() => setIsConfigOpen(true)}
               title={`${event.label} — ${formatDateFr(event.date)} (cliquez pour changer la date)`}
               className="flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-[11px] font-extrabold text-rose-300 transition hover:bg-rose-500/20">
-              <span className="jour-j-pin">💍</span>
+              <span className="jour-j-pin">🚩</span>
               {daysToEvent > 0 ? `J-${daysToEvent}` : daysToEvent === 0 ? "C'est aujourd'hui" : `J+${Math.abs(daysToEvent)}`}
               <span className="hidden font-mono font-medium opacity-70 xl:inline">{formatDateFr(event.date)}</span>
             </button>
@@ -2929,7 +2194,7 @@ function AuraPlanApp() {
       {/* ------------------------------ Contenu ------------------------------ */}
       <main className="relative flex flex-1 overflow-hidden">
 
-        {/* Rappel discret du Jour J lorsqu'il est hors de l'écran */}
+        {/* Rappel discret de l'échéance lorsqu'elle est hors de l'écran */}
         {activeTab === 'roadmap' && viewport.width > 0 && eventOffset >= 0 ? (() => {
           const eventX = nameColWidth + eventOffset * columnWidth;
           const gauche = eventX < viewport.left + nameColWidth;
@@ -2941,7 +2206,7 @@ function AuraPlanApp() {
               className={`group absolute top-1/2 z-[45] flex -translate-y-1/2 items-center gap-1 rounded-full border border-rose-400/40 bg-rose-500/15 px-2 py-1.5 text-[10px] font-bold text-rose-300 opacity-60 backdrop-blur transition hover:opacity-100
                 ${droite ? 'right-2' : 'left-2'} ${isRightPanelOpen && droite ? 'lg:right-[21rem]' : ''}`}>
               {gauche ? <span>‹</span> : null}
-              <span className="jour-j-pin">💍</span>
+              <span className="jour-j-pin">🚩</span>
               <span className="hidden font-mono group-hover:inline">{daysToEvent > 0 ? `J-${daysToEvent}` : formatDateFr(event.date)}</span>
               {droite ? <span>›</span> : null}
             </button>
@@ -2977,13 +2242,13 @@ function AuraPlanApp() {
                 </div>
 
                 <div className="relative">
-                  {/* Repère du Jour J, traversant toutes les lignes */}
+                  {/* Repère de l'échéance, traversant toutes les lignes */}
                   {eventOffset >= 0 && eventOffset < totalDays ? (
                     <div className="pointer-events-none absolute inset-y-0 z-[8]"
                       style={{ left: `${nameColWidth + eventOffset * columnWidth}px`, width: `${Math.max(3, columnWidth)}px` }}>
                       <div className="jour-j-pin absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-rose-400" />
                       <div className="absolute -top-0.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-b-lg border border-t-0 border-rose-400/70 bg-rose-500/95 px-2 py-0.5 text-[10px] font-extrabold text-white shadow-lg">
-                        💍 {event.label} · {formatDateFr(event.date)}
+                        🚩 {event.label} · {formatDateFr(event.date)}
                       </div>
                     </div>
                   ) : null}
@@ -3680,7 +2945,7 @@ function AuraPlanApp() {
               <button type="button" className={btnPrimary} onClick={() => saveProject(projectForm)}>{projectForm.id ? 'Enregistrer' : 'Créer le projet'}</button>
             </div></>}>
           <div className="space-y-3">
-            <Field T={T} label="Nom du projet"><input className={inputCls} autoFocus value={projectForm.title} onChange={(e) => setProjectForm({ ...projectForm, title: e.target.value })} placeholder="Ex. Mariage — prestataires" /></Field>
+            <Field T={T} label="Nom du projet"><input className={inputCls} autoFocus value={projectForm.title} onChange={(e) => setProjectForm({ ...projectForm, title: e.target.value })} placeholder="Ex. Refonte du site" /></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field T={T} label="Catégorie"><input className={inputCls} value={projectForm.category} onChange={(e) => setProjectForm({ ...projectForm, category: e.target.value })} /></Field>
               <Field T={T} label="Couleur">
@@ -3964,8 +3229,11 @@ function AuraPlanApp() {
                   <button type="button" className="text-[11px] font-bold text-indigo-400" onClick={copierAdresse}>Copier</button>
                 </div>
                 <code className="block break-all font-mono text-[10px] text-indigo-300">{adresseTableau}</code>
-                <p className={`mt-1.5 text-[10px] ${T.faint}`}>
-                  Dépôt détecté : <span className="font-mono">{sync.owner || '?'}/{sync.repo || '?'}</span> · fichier <span className="font-mono">{FICHIER}</span>
+                <p className={`mt-1.5 text-[10px] leading-relaxed ${T.faint}`}>
+                  Dépôt : <span className="font-mono">{sync.owner || '?'}/{sync.repo || '?'}</span> · fichier <span className="font-mono">{FICHIER}</span>
+                  {' '}sur la branche <span className="font-mono">{sync.branch}</span>
+                  {sync.branch !== sync.brancheSite ? <span className="text-emerald-400"> (séparée du site : aucune reconstruction déclenchée)</span> : null}
+                  {syncEtat.poids ? <> · taille actuelle <span className="font-mono">{(syncEtat.poids / 1024).toFixed(1)} ko</span></> : null}
                 </p>
               </div>
 
@@ -3989,7 +3257,7 @@ function AuraPlanApp() {
                   <p className="text-[11px] text-amber-200">Dépôt non détecté : cette page n'est pas servie par GitHub Pages. Renseignez-le à la main.</p>
                   <div className="grid grid-cols-2 gap-2">
                     <input className={inputCls} value={sync.owner} onChange={(e) => setSync({ ...sync, owner: e.target.value.trim() })} placeholder="votre-compte" />
-                    <input className={inputCls} value={sync.repo} onChange={(e) => setSync({ ...sync, repo: e.target.value.trim() })} placeholder="mariage" />
+                    <input className={inputCls} value={sync.repo} onChange={(e) => setSync({ ...sync, repo: e.target.value.trim() })} placeholder="mon-tableau" />
                   </div>
                 </div>
               ) : null}
@@ -4002,6 +3270,17 @@ function AuraPlanApp() {
               </div>
             </div>
 
+            {/* Entretien du dépôt */}
+            <div className={`space-y-2 rounded-xl border p-3 ${T.raise}`}>
+              <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Entretien</h4>
+              <p className={`text-[11px] leading-relaxed ${T.faint}`}>
+                Chaque enregistrement ajoute une version au dépôt : quelques kilo-octets, sur une branche
+                qui ne touche pas au site. Après des mois d'usage, vous pouvez repartir d'un historique vierge
+                sans rien perdre du tableau.
+              </p>
+              <button type="button" className={`w-full ${btnSecondary}`} onClick={compacterHistorique}>Repartir d'un historique vierge</button>
+            </div>
+
             {/* Sauvegarde sur le disque */}
             <div className={`space-y-2 rounded-xl border p-3 ${T.raise}`}>
               <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Copie sur votre ordinateur</h4>
@@ -4012,15 +3291,25 @@ function AuraPlanApp() {
               </div>
             </div>
 
-            {/* Jour J */}
+            {/* Identité du tableau et échéance */}
             <div className={`space-y-3 rounded-xl border p-3 ${T.raise}`}>
-              <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Jour J</h4>
+              <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Votre tableau</h4>
               <div className="grid grid-cols-2 gap-3">
-                <Field T={T} label="Date">
+                <Field T={T} label="Nom du tableau" hint="Affiché en haut à gauche.">
+                  <input className={inputCls} value={data.board.titre}
+                    onChange={(e) => commit((prev) => ({ ...prev, board: { ...prev.board, titre: e.target.value } }))} />
+                </Field>
+                <Field T={T} label="Préfixe des références" hint="Les tâches existantes gardent la leur.">
+                  <input className={inputCls} value={data.board.prefixe}
+                    onChange={(e) => commit((prev) => ({ ...prev, board: { ...prev.board, prefixe: e.target.value } }))} />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field T={T} label="Date d'échéance" hint="Repère animé sur la roadmap.">
                   <input type="date" className={inputCls} value={event.date}
                     onChange={(e) => { if (isIsoDate(e.target.value)) commit((prev) => ({ ...prev, event: { ...prev.event, date: e.target.value } })); }} />
                 </Field>
-                <Field T={T} label="Libellé">
+                <Field T={T} label="Nom de l'échéance" hint="Ex. livraison, mariage, examen…">
                   <input className={inputCls} value={event.label} onChange={(e) => commit((prev) => ({ ...prev, event: { ...prev.event, label: e.target.value } }))} />
                 </Field>
               </div>
@@ -4037,14 +3326,14 @@ function AuraPlanApp() {
             <li><strong>1.</strong> Sur GitHub, cliquez votre photo en haut à droite, puis <strong>Settings</strong> (tout en bas du menu).</li>
             <li><strong>2.</strong> Dans la colonne de gauche, descendez jusqu'à <strong>Developer settings</strong>, le dernier élément.</li>
             <li><strong>3.</strong> <strong>Personal access tokens</strong> › <strong>Fine-grained tokens</strong> › bouton <strong>Generate new token</strong>.</li>
-            <li><strong>4.</strong> Donnez-lui un nom (« tableau mariage »), une expiration longue, puis dans <strong>Repository access</strong> choisissez <em>Only select repositories</em> et cochez votre dépôt <span className="font-mono">{sync.repo || 'mariage'}</span>.</li>
+            <li><strong>4.</strong> Donnez-lui un nom (« mon tableau »), une expiration longue, puis dans <strong>Repository access</strong> choisissez <em>Only select repositories</em> et cochez votre dépôt <span className="font-mono">{sync.repo || 'mon-tableau'}</span>.</li>
             <li><strong>5.</strong> Dans <strong>Repository permissions</strong>, cherchez la ligne <strong>Contents</strong> et mettez-la sur <strong>Read and write</strong>. Ne touchez à rien d'autre.</li>
             <li><strong>6.</strong> <strong>Generate token</strong>, puis copiez la longue chaîne affichée — elle ne sera plus jamais montrée.</li>
             <li><strong>7.</strong> Collez-la dans le champ « Jeton GitHub » de la fenêtre précédente. C'est terminé.</li>
           </ol>
           <div className={`mt-4 rounded-xl border p-3 text-[11px] leading-relaxed ${T.border} ${T.inset} ${T.muted}`}>
             Ce jeton autorise uniquement la lecture et l'écriture de fichiers dans ce dépôt.
-            Le même jeton peut être collé sur vos deux ordinateurs et sur celui de Magalie.
+            Le même jeton peut être collé sur tous vos appareils et sur ceux de vos collaborateurs.
             Les personnes sans jeton peuvent quand même consulter le tableau : elles ont juste besoin du mot de passe.
           </div>
         </Modal>
@@ -4055,12 +3344,12 @@ function AuraPlanApp() {
           footer={<><span className={`text-[11px] ${T.faint}`}>Tout est stocké dans votre navigateur.</span><button type="button" className={btnSecondary} onClick={() => setIsHelpOpen(false)}>Fermer</button></>}>
           <ul className="space-y-2 text-[12px] leading-relaxed">
             <li><strong>Roadmap</strong> — trois niveaux : projet › tâche › sous-tâche. Chaque ligne se plie avec son propre bouton <span className="font-mono">+</span> / <span className="font-mono">−</span>, indépendamment des autres.</li>
-            <li><strong>Se déplacer dans le temps</strong> — clic maintenu sur la grille pour la faire glisser, flèches <span className="font-mono">←</span> <span className="font-mono">→</span> pour avancer d'une semaine, molette du milieu enfoncée aussi. Le repère rose marque le Jour J ; s'il est hors écran, une pastille discrète apparaît sur le bord.</li>
+            <li><strong>Se déplacer dans le temps</strong> — clic maintenu sur la grille pour la faire glisser, flèches <span className="font-mono">←</span> <span className="font-mono">→</span> pour avancer d'une semaine, molette du milieu enfoncée aussi. Le repère rose marque l'échéance ; si elle est hors écran, une pastille discrète apparaît sur le bord.</li>
             <li><strong>Planning</strong> — cliquez une demi-case pour planifier. Glissez un bloc horizontalement pour changer de date, verticalement pour le confier à un autre collaborateur.</li>
             <li><strong>Kanban</strong> — tapez un titre dans une colonne et faites Entrée : la tâche est créée au bon endroit, et vous pouvez enchaîner. « Grouper par » réorganise le tableau par statut, par personne ou par priorité. Les cartes se réordonnent à la souris.</li>
-            <li><strong>Chaque tâche a une référence</strong> (MAR-12) : pratique pour se dire « regarde MAR-12 ». La recherche la reconnaît.</li>
+            <li><strong>Chaque tâche a une référence</strong> (TSK-12) : pratique pour se dire « regarde TSK-12 ». La recherche la reconnaît.</li>
             <li><strong>Échanges et historique</strong> — ouvrez une tâche : vous pouvez vous y répondre par écrit, et l'application consigne qui a fait quoi.</li>
-            <li><strong>Tâches préalables</strong> — indiquez qu'une tâche en attend une autre. La carte affiche « En attente de MAR-3 », et la roadmap signale ⚠ si les dates se contredisent.</li>
+            <li><strong>Tâches préalables</strong> — indiquez qu'une tâche en attend une autre. La carte affiche « En attente de TSK-3 », et la roadmap signale ⚠ si les dates se contredisent.</li>
             <li><strong>Notes</strong> — l'endroit pour les devis, contacts et comparatifs, afin de garder les autres vues lisibles. Une note peut être rattachée à un projet.</li>
             <li><strong>À plusieurs</strong> — envoyez l'adresse du site et le mot de passe. Le tableau est enregistré, chiffré, dans votre dépôt GitHub : chacun le retrouve depuis n'importe quel ordinateur, à tout moment. Pour pouvoir enregistrer ses propres modifications, il faut aussi coller un jeton (bouton « Partager », guide fourni).</li>
             <li className="pt-2"><strong>Raccourcis</strong> — <span className="font-mono">1 2 3 4</span> changent de vue, <span className="font-mono">T</span> recentre sur aujourd'hui, <span className="font-mono">F</span> affiche toute la période, <span className="font-mono">Ctrl+Z</span> annule, <span className="font-mono">Échap</span> ferme.</li>
