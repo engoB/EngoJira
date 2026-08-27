@@ -158,11 +158,30 @@ const triggerConfetti = () => {
 };
 
 const initials = (name) => String(name || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
-const AVATAR_COLORS = ['bg-indigo-600', 'bg-emerald-600', 'bg-amber-600', 'bg-rose-600', 'bg-cyan-600', 'bg-fuchsia-600', 'bg-teal-600'];
+
+// Couleurs proposées pour identifier chacun d'un coup d'œil.
+const COULEURS_MEMBRE = [
+  { valeur: 'indigo', classe: 'bg-indigo-600' },
+  { valeur: 'violet', classe: 'bg-violet-600' },
+  { valeur: 'fuchsia', classe: 'bg-fuchsia-600' },
+  { valeur: 'rose', classe: 'bg-rose-600' },
+  { valeur: 'amber', classe: 'bg-amber-600' },
+  { valeur: 'emerald', classe: 'bg-emerald-600' },
+  { valeur: 'teal', classe: 'bg-teal-600' },
+  { valeur: 'cyan', classe: 'bg-cyan-600' },
+  { valeur: 'slate', classe: 'bg-slate-600' }
+];
+const classeCouleur = (v) => (COULEURS_MEMBRE.find((c) => c.valeur === v) || COULEURS_MEMBRE[0]).classe;
+
+// Couleurs retenues pour l'équipe, tenues à jour par l'application.
+const PALETTE_EQUIPE = {};
+
 const avatarColor = (name) => {
+  const choisie = PALETTE_EQUIPE[String(name || '').toLowerCase()];
+  if (choisie) return classeCouleur(choisie);
   let h = 0; const s = String(name || '');
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+  return COULEURS_MEMBRE[h % COULEURS_MEMBRE.length].classe;
 };
 
 const b64encode = (str) => {
@@ -272,17 +291,21 @@ const normalizeNote = (n) => {
   };
 };
 
-const normalizeMembre = (m) => {
+const normalizeMembre = (m, index) => {
   const o = m && typeof m === 'object' ? m : { nom: m };
+  const couleur = COULEURS_MEMBRE.some((c) => c.valeur === o.couleur)
+    ? o.couleur
+    : COULEURS_MEMBRE[(index || 0) % COULEURS_MEMBRE.length].valeur;
   return {
     id: o.id ? String(o.id) : uid('m'),
     nom: safeText(o.nom, 'Sans nom'),
-    role: safeText(o.role, '')
+    role: safeText(o.role, ''),
+    couleur
   };
 };
 
 const normalizeEquipe = (raw) => {
-  const liste = Array.isArray(raw) ? raw.map(normalizeMembre) : [];
+  const liste = Array.isArray(raw) ? raw.map((m, i) => normalizeMembre(m, i)) : [];
   const vus = new Set();
   return liste.filter((m) => { const k = m.nom.toLowerCase(); if (vus.has(k)) return false; vus.add(k); return true; });
 };
@@ -679,6 +702,37 @@ function Modal({ title, subtitle, onClose, children, footer, T, size }) {
   );
 }
 
+// Sélecteur de personne : la liste de l'équipe, plus une porte de sortie pour un nom libre.
+function ChoixMembre({ valeur, membres, onChange, onGerer, T, inputCls }) {
+  const [libre, setLibre] = React.useState(false);
+  const connu = membres.includes(valeur);
+  if (libre || (!connu && valeur && valeur !== 'Non assigné')) {
+    return (
+      <div className="flex gap-1.5">
+        <input className={inputCls} autoFocus={libre} value={valeur} onChange={(e) => onChange(e.target.value)} placeholder="Nom" />
+        <button type="button" className={`shrink-0 rounded-xl border px-2 text-[11px] font-bold ${T.border} ${T.hover} ${T.muted}`}
+          title="Revenir à la liste" onClick={() => { setLibre(false); onChange(membres[0] || 'Non assigné'); }}>Liste</button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <select className={inputCls} value={connu ? valeur : 'Non assigné'}
+        onChange={(e) => {
+          if (e.target.value === '__AUTRE__') { setLibre(true); onChange(''); return; }
+          if (e.target.value === '__GERER__') { if (onGerer) onGerer(); return; }
+          onChange(e.target.value);
+        }}>
+        <option value="Non assigné">— Non assigné —</option>
+        {membres.map((m) => <option key={m} value={m}>{m}</option>)}
+        <option value="__AUTRE__">Autre nom…</option>
+        {onGerer ? <option value="__GERER__">Gérer l'équipe…</option> : null}
+      </select>
+      {connu ? <Avatar name={valeur} size="sm" /> : null}
+    </div>
+  );
+}
+
 function Field({ label, hint, children, T }) {
   return (
     <label className="block">
@@ -837,6 +891,9 @@ function AuraPlanApp() {
     };
   });
 
+  // La palette des avatars suit l'équipe déclarée.
+  (data.equipe || []).forEach((m) => { PALETTE_EQUIPE[m.nom.toLowerCase()] = m.couleur; });
+
   const monNom = useCallback(() => (sync.nom || 'Quelqu’un'), [sync.nom]);
 
   const journaliserRef = useRef(null);
@@ -893,7 +950,7 @@ function AuraPlanApp() {
   const [isEquipeOpen, setIsEquipeOpen] = useState(false);
   const [isResetOpen, setIsResetOpen] = useState(false);
   const [resetConfirme, setResetConfirme] = useState('');
-  const [nouveauMembre, setNouveauMembre] = useState({ nom: '', role: '' });
+  const [nouveauMembre, setNouveauMembre] = useState({ nom: '', role: '', couleur: COULEURS_MEMBRE[0].valeur });
   const [membreEnEdition, setMembreEnEdition] = useState(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [selectedNoteId, setSelectedNoteId] = useState(null);
@@ -1226,20 +1283,22 @@ function AuraPlanApp() {
   };
 
   /* ------------------------------- Équipe ------------------------------- */
-  const ajouterMembre = (nom, role) => {
+  const ajouterMembre = (nom, role, couleur) => {
     const propre = String(nom || '').trim();
     if (!propre) return false;
     if ((data.equipe || []).some((m) => m.nom.toLowerCase() === propre.toLowerCase())) {
       pushToast('Cette personne est déjà dans l’équipe', 'error');
       return false;
     }
-    commit((prev) => ({ ...prev, equipe: [...(prev.equipe || []), { id: uid('m'), nom: propre, role: String(role || '').trim() }] }),
+    commit((prev) => ({ ...prev, equipe: [...(prev.equipe || []),
+      { id: uid('m'), nom: propre, role: String(role || '').trim(),
+        couleur: couleur || COULEURS_MEMBRE[(prev.equipe || []).length % COULEURS_MEMBRE.length].valeur }] }),
       `${propre} rejoint l’équipe`);
     return true;
   };
 
   // Renommer met à jour toutes les affectations : rien ne se retrouve orphelin.
-  const renommerMembre = (id, nouveauNom, nouveauRole) => {
+  const renommerMembre = (id, nouveauNom, nouveauRole, nouvelleCouleur) => {
     const propre = String(nouveauNom || '').trim();
     if (!propre) return;
     const membre = (data.equipe || []).find((m) => m.id === id);
@@ -1247,7 +1306,10 @@ function AuraPlanApp() {
     const ancien = membre.nom;
     commit((prev) => ({
       ...prev,
-      equipe: prev.equipe.map((m) => (m.id === id ? { ...m, nom: propre, role: String(nouveauRole !== undefined ? nouveauRole : m.role || '').trim() } : m)),
+      equipe: prev.equipe.map((m) => (m.id === id
+        ? { ...m, nom: propre, role: String(nouveauRole !== undefined ? nouveauRole : m.role || '').trim(),
+            couleur: nouvelleCouleur || m.couleur }
+        : m)),
       projects: prev.projects.map((p) => ({
         ...p,
         tasks: p.tasks.map((t) => ({
@@ -1693,7 +1755,24 @@ function AuraPlanApp() {
   }, [undo, closeAllModals, anyModalOpen, scrollToToday, fitAll, scrollTimelineBy]);
 
   /* --------------------------- Partage GitHub --------------------------- */
-  const [syncEtat, setSyncEtat] = useState({ etat: 'inactif', message: '', dernier: 0, participants: [], ecritures: 0, lectures: 0 });
+  const [syncEtatBrut, setSyncEtatBrut] = useState({ etat: 'inactif', message: '', dernier: 0, participants: [], ecritures: 0, lectures: 0 });
+  const syncEtat = syncEtatBrut;
+  const panneauOuvert = useRef(false);
+
+  // Une relève qui ne change rien de visible ne doit pas provoquer de rendu :
+  // sinon l'écran se recalcule toutes les huit secondes, et cela se voit.
+  const empreinteEtat = (e) => JSON.stringify([e.etat, e.message, e.poids,
+    (e.participants || []).map((p) => p.id + ':' + p.nom).join('|'),
+    panneauOuvert.current ? [e.dernier, e.lectures, e.ecritures] : 0]);
+
+  const setSyncEtat = useCallback((maj) => {
+    setSyncEtatBrut((prev) => {
+      const suivant = typeof maj === 'function' ? maj(prev) : { ...prev, ...maj };
+      return empreinteEtat(prev) === empreinteEtat(suivant) ? prev : suivant;
+    });
+  }, []);
+
+  useEffect(() => { panneauOuvert.current = isConfigOpen; }, [isConfigOpen]);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   useEffect(() => { saveJson(SYNC_KEY, sync); }, [sync]);
@@ -1856,6 +1935,18 @@ function AuraPlanApp() {
       const nouveauLocal = depuisFichier(fusion.contenu);
       const changeLocalement = JSON.stringify(versFichier(dataRef.current)) !== JSON.stringify(versFichier(nouveauLocal));
       if (changeLocalement) {
+        // On garde la frise là où elle était : recevoir une mise à jour ne doit pas
+        // ramener l'affichage au début.
+        const vp = document.getElementById('timeline-viewport');
+        const position = vp ? { gauche: vp.scrollLeft, haut: vp.scrollTop } : null;
+        if (position) {
+          window.requestAnimationFrame(() => {
+            const cible = document.getElementById('timeline-viewport');
+            if (!cible) return;
+            if (cible.scrollLeft !== position.gauche) cible.scrollLeft = position.gauche;
+            if (cible.scrollTop !== position.haut) cible.scrollTop = position.haut;
+          });
+        }
         appliqueDistant.current = true;
         majsRef.current = fusion.majs;
         supprRef.current = fusion.supprimes;
@@ -2139,7 +2230,9 @@ function AuraPlanApp() {
     };
   }, [columnWidth, isDark]);
 
-  const GridBackground = () => (
+  // Élément mémorisé, pas composant : défini dans le corps du rendu, React le
+  // détruisait et le reconstruisait à chaque mise à jour, sur chaque ligne.
+  const fondGrille = useMemo(() => (
     <>
       <div className="pointer-events-none absolute inset-0" style={gridStyle} />
       {todayOffset >= 0 && todayOffset < totalDays ? (
@@ -2151,7 +2244,7 @@ function AuraPlanApp() {
           style={{ left: `${eventOffset * columnWidth}px`, width: `${columnWidth}px` }} />
       ) : null}
     </>
-  );
+  ), [gridStyle, todayOffset, eventOffset, columnWidth, totalDays]);
 
   const isEventBar = (startIso, duration) => {
     const s = parseDate(startIso);
@@ -2321,7 +2414,7 @@ function AuraPlanApp() {
             {activeTab === 'roadmap' ? (
               <>
                 <button type="button" onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)} className={btnSecondary}>{isLeftPanelOpen ? 'Réduire la colonne' : 'Afficher la colonne'}</button>
-                <button type="button" onClick={() => setIsRightPanelOpen(!isRightPanelOpen)} className={btnSecondary}>{isRightPanelOpen ? 'Masquer le détail' : 'Afficher le détail'}</button>
+                <button type="button" onClick={() => setIsRightPanelOpen(!isRightPanelOpen)} className={`hidden xl:inline-block ${btnSecondary}`}>{isRightPanelOpen ? 'Masquer le détail' : 'Afficher le détail'}</button>
                 <button type="button" onClick={scrollToEvent} className={btnSecondary} title={`Aller à : ${event.label}`}>🚩 {event.label}</button>
                 <button type="button" onClick={scrollToToday} className={btnSecondary}>Aujourd'hui</button>
                 <span className={`ml-1 hidden text-[11px] 2xl:inline ${T.faint}`}>Clic maintenu sur la grille pour faire défiler · ← → pour avancer d'une semaine</span>
@@ -2432,7 +2525,14 @@ function AuraPlanApp() {
                       </div>
                     </div>
                   ) : null}
-                  {projects.length === 0 ? <div className={`px-8 py-16 text-center text-sm ${T.faint}`}>Aucun projet. Créez-en un pour démarrer votre roadmap.</div> : null}
+                  {projects.length === 0 ? (
+                    <div className="flex">
+                      <div style={{ width: `${nameColWidth}px` }} data-nopan className={`sticky left-0 z-20 shrink-0 border-r px-4 py-10 ${T.panel}`}>
+                        <p className={`text-[11px] leading-relaxed ${T.faint}`}>Aucun projet. Le bouton « Nouveau projet », en haut à droite, en crée un.</p>
+                      </div>
+                      <div className="relative min-h-[12rem] flex-1" style={{ width: `${timelineWidth}px` }}>{fondGrille}</div>
+                    </div>
+                  ) : null}
 
                   {projects.map((proj) => {
                     const pct = projectProgress(proj);
@@ -2471,7 +2571,7 @@ function AuraPlanApp() {
                           </div>
 
                           <div className="relative" style={{ width: `${timelineWidth}px` }}>
-                            <GridBackground />
+                            {fondGrille}
                             {dragging ? <div style={{ left: `${drag.snapStart * columnWidth}px`, width: `${drag.snapLen * columnWidth}px` }} className="absolute top-3 h-8 rounded-lg border-2 border-dashed border-indigo-400 bg-indigo-500/10" /> : null}
                             <div style={{ left: `${geo.left}px`, width: `${Math.max(columnWidth * 0.6, geo.width)}px` }}
                                   data-nopan
@@ -2537,7 +2637,7 @@ function AuraPlanApp() {
                                   ) : null}
                                 </div>
                                 <div className="relative" style={{ width: `${timelineWidth}px` }}>
-                                  <GridBackground />
+                                  {fondGrille}
                                   {tDragging ? <div style={{ left: `${drag.snapStart * columnWidth}px`, width: `${drag.snapLen * columnWidth}px` }} className="absolute top-2 h-6 rounded border-2 border-dashed border-indigo-400 bg-indigo-500/10" /> : null}
                                   <div style={{ left: `${tGeo.left}px`, width: `${Math.max(columnWidth * 0.5, tGeo.width)}px` }}
                                   data-nopan
@@ -2570,7 +2670,7 @@ function AuraPlanApp() {
                                       ) : null}
                                     </div>
                                     <div className="relative" style={{ width: `${timelineWidth}px` }}>
-                                      <GridBackground />
+                                      {fondGrille}
                                       {sDragging ? <div style={{ left: `${drag.snapStart * columnWidth}px`, width: `${drag.snapLen * columnWidth}px` }} className="absolute top-2 h-4 rounded border-2 border-dashed border-indigo-400 bg-indigo-500/10" /> : null}
                                       <div style={{ left: `${sGeo.left}px`, width: `${Math.max(columnWidth * 0.4, sGeo.width)}px` }}
                                   data-nopan
@@ -2591,12 +2691,20 @@ function AuraPlanApp() {
                       </React.Fragment>
                     );
                   })}
+
+                  {/* Prolongement de la grille : sans lui, le bas de l'écran est une zone morte */}
+                  {projects.length ? (
+                    <div className="flex min-h-[40vh]">
+                      <div style={{ width: `${nameColWidth}px` }} data-nopan className={`sticky left-0 z-20 shrink-0 border-r ${T.panel}`} />
+                      <div className="relative flex-1" style={{ width: `${timelineWidth}px` }}>{fondGrille}</div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
 
             {isRightPanelOpen ? (
-              <aside className={`hidden w-80 shrink-0 overflow-y-auto border-l p-4 lg:block ${T.panel}`}>
+              <aside className={`hidden w-80 shrink-0 overflow-y-auto border-l p-4 xl:block ${T.panel}`}>
                 {selectedProject ? (
                   <div className="space-y-4">
                     <div className={`overflow-hidden rounded-2xl border ${T.raise}`}>
@@ -3019,7 +3127,10 @@ function AuraPlanApp() {
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field T={T} label="Collaborateur"><input className={inputCls} list="collab-list" value={entryForm.assignee} onChange={(e) => setEntryForm({ ...entryForm, assignee: e.target.value })} /></Field>
+              <Field T={T} label="Collaborateur">
+                <ChoixMembre T={T} inputCls={inputCls} valeur={entryForm.assignee} membres={collaborators}
+                  onChange={(v) => setEntryForm({ ...entryForm, assignee: v })} onGerer={() => setIsEquipeOpen(true)} />
+              </Field>
               <Field T={T} label="Durée (jours)"><input type="number" step="0.5" min="0.5" className={inputCls} value={entryForm.duration} onChange={(e) => setEntryForm({ ...entryForm, duration: e.target.value })} /></Field>
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -3173,7 +3284,10 @@ function AuraPlanApp() {
               ) : null}
               <Field T={T} label="Titre"><input className={inputCls} autoFocus value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></Field>
               <div className="grid grid-cols-2 gap-3">
-                <Field T={T} label="Assigné à"><input className={inputCls} list="collab-list" value={form.assignee} onChange={(e) => setForm({ ...form, assignee: e.target.value })} /></Field>
+                <Field T={T} label="Assigné à">
+                  <ChoixMembre T={T} inputCls={inputCls} valeur={form.assignee} membres={collaborators}
+                    onChange={(v) => setForm({ ...form, assignee: v })} onGerer={() => setIsEquipeOpen(true)} />
+                </Field>
                 <Field T={T} label="Priorité">
                   <select className={inputCls} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
                     {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
@@ -3323,7 +3437,10 @@ function AuraPlanApp() {
           <div className="space-y-3">
             <Field T={T} label="Titre"><input className={inputCls} autoFocus value={subtaskForm.title} onChange={(e) => setSubtaskForm({ ...subtaskForm, title: e.target.value })} placeholder="Ex. Demander le devis" /></Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field T={T} label="Assigné à"><input className={inputCls} list="collab-list" value={subtaskForm.assignee} onChange={(e) => setSubtaskForm({ ...subtaskForm, assignee: e.target.value })} /></Field>
+              <Field T={T} label="Assigné à">
+                <ChoixMembre T={T} inputCls={inputCls} valeur={subtaskForm.assignee} membres={collaborators}
+                  onChange={(v) => setSubtaskForm({ ...subtaskForm, assignee: v })} onGerer={() => setIsEquipeOpen(true)} />
+              </Field>
               <Field T={T} label="Statut">
                 <select className={inputCls} value={subtaskForm.status} onChange={(e) => setSubtaskForm({ ...subtaskForm, status: e.target.value })}>
                   {STATUSES.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
@@ -3540,7 +3657,9 @@ function AuraPlanApp() {
 
             {/* Ajout */}
             <form className={`flex flex-wrap items-end gap-2 rounded-xl border p-3 ${T.raise}`}
-              onSubmit={(e) => { e.preventDefault(); if (ajouterMembre(nouveauMembre.nom, nouveauMembre.role)) setNouveauMembre({ nom: '', role: '' }); }}>
+              onSubmit={(e) => { e.preventDefault();
+                if (ajouterMembre(nouveauMembre.nom, nouveauMembre.role, nouveauMembre.couleur))
+                  setNouveauMembre({ nom: '', role: '', couleur: COULEURS_MEMBRE[((data.equipe || []).length + 1) % COULEURS_MEMBRE.length].valeur }); }}>
               <div className="min-w-[9rem] flex-1">
                 <Field T={T} label="Prénom ou nom">
                   <input className={inputCls} value={nouveauMembre.nom} placeholder="Ex. Camille"
@@ -3552,6 +3671,13 @@ function AuraPlanApp() {
                   <input className={inputCls} value={nouveauMembre.role} placeholder="Ex. graphiste"
                     onChange={(e) => setNouveauMembre({ ...nouveauMembre, role: e.target.value })} />
                 </Field>
+              </div>
+              <div className="flex items-center gap-1.5 pb-1">
+                {COULEURS_MEMBRE.map((c) => (
+                  <button key={c.valeur} type="button" title={c.valeur}
+                    onClick={() => setNouveauMembre({ ...nouveauMembre, couleur: c.valeur })}
+                    className={`h-5 w-5 rounded-lg ${c.classe} transition ${nouveauMembre.couleur === c.valeur ? 'ring-2 ring-indigo-400' : 'opacity-60 hover:opacity-100'}`} />
+                ))}
               </div>
               <button type="submit" className={btnPrimary}>Ajouter</button>
             </form>
@@ -3579,12 +3705,20 @@ function AuraPlanApp() {
                             <input className={`${inputCls} min-w-[8rem] flex-1`} value={membreEnEdition.role || ''} placeholder="Rôle"
                               onChange={(e) => setMembreEnEdition({ ...membreEnEdition, role: e.target.value })} />
                           </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className={`text-[10px] font-bold uppercase tracking-wide ${T.faint}`}>Couleur</span>
+                            {COULEURS_MEMBRE.map((c) => (
+                              <button key={c.valeur} type="button" title={c.valeur}
+                                onClick={() => setMembreEnEdition({ ...membreEnEdition, couleur: c.valeur })}
+                                className={`h-5 w-5 rounded-lg ${c.classe} transition ${membreEnEdition.couleur === c.valeur ? 'ring-2 ring-offset-2 ring-indigo-400 ring-offset-transparent' : 'opacity-60 hover:opacity-100'}`} />
+                            ))}
+                          </div>
                           <div className="flex items-center justify-between gap-2">
                             <span className={`text-[10px] ${T.faint}`}>{charge} élément(s) suivront le nouveau nom</span>
                             <span className="flex gap-2">
                               <button type="button" className={btnQuiet} onClick={() => setMembreEnEdition(null)}>Annuler</button>
                               <button type="button" className={btnPrimary}
-                                onClick={() => { renommerMembre(m.id, membreEnEdition.nom, membreEnEdition.role); setMembreEnEdition(null); }}>Enregistrer</button>
+                                onClick={() => { renommerMembre(m.id, membreEnEdition.nom, membreEnEdition.role, membreEnEdition.couleur); setMembreEnEdition(null); }}>Enregistrer</button>
                             </span>
                           </div>
                         </div>
@@ -3600,7 +3734,7 @@ function AuraPlanApp() {
                               {m.role ? m.role + ' · ' : ''}{charge} élément(s) attribué(s)
                             </div>
                           </div>
-                          <button type="button" className={btnQuiet} onClick={() => setMembreEnEdition({ id: m.id, nom: m.nom, role: m.role || '' })}>Modifier</button>
+                          <button type="button" className={btnQuiet} onClick={() => setMembreEnEdition({ id: m.id, nom: m.nom, role: m.role || '', couleur: m.couleur })}>Modifier</button>
                           <button type="button" className="rounded-xl px-2 py-2 text-xs font-bold text-rose-400 hover:bg-rose-500/10"
                             onClick={() => {
                               if (charge > 0) {
