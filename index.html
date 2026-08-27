@@ -868,10 +868,10 @@ function AuraPlanApp() {
   }), [isDark]);
 
   const inputCls = `w-full rounded-xl border px-3 py-2 text-xs font-medium outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/25 ${isDark ? 'bg-[#0A1220] border-[#28344F] text-slate-100 placeholder-slate-500' : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'}`;
-  const btnPrimary = 'rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-950/40 transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400';
-  const btnSecondary = `rounded-xl border px-3 py-2 text-xs font-bold transition focus:outline-none focus:ring-2 focus:ring-indigo-400 ${isDark ? 'bg-[#141F35] border-[#2B3A5C] text-slate-100 hover:bg-[#1B2949]' : 'bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200'}`;
-  const btnQuiet = `rounded-xl border border-transparent px-3 py-2 text-xs font-semibold transition ${T.muted} ${T.hover} focus:outline-none focus:ring-2 focus:ring-indigo-400`;
-  const btnDanger = 'rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-300 transition hover:bg-rose-500/20';
+  const btnPrimary = 'whitespace-nowrap rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-950/40 transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400';
+  const btnSecondary = `whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-bold transition focus:outline-none focus:ring-2 focus:ring-indigo-400 ${isDark ? 'bg-[#141F35] border-[#2B3A5C] text-slate-100 hover:bg-[#1B2949]' : 'bg-slate-100 border-slate-300 text-slate-800 hover:bg-slate-200'}`;
+  const btnQuiet = `whitespace-nowrap rounded-xl border border-transparent px-3 py-2 text-xs font-semibold transition ${T.muted} ${T.hover} focus:outline-none focus:ring-2 focus:ring-indigo-400`;
+  const btnDanger = 'whitespace-nowrap rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs font-bold text-rose-300 transition hover:bg-rose-500/20';
 
   const storedPass = useRef(loadJson(PASS_KEY, {})).current;
   const [password, setPassword] = useState(typeof storedPass.value === 'string' ? storedPass.value : '');
@@ -2320,16 +2320,16 @@ function AuraPlanApp() {
     <div className={`flex h-screen flex-col overflow-hidden ${T.app} ${drag ? 'is-dragging' : ''}`}>
 
       {/* ------------------------------ En-tête ------------------------------ */}
-      <header className={`flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-2.5 ${T.rail} ${T.border}`}>
-        <div className="flex items-center gap-5">
-          <div className="flex items-center gap-2.5">
+      <header className={`flex h-14 shrink-0 items-center justify-between gap-3 overflow-hidden border-b px-4 ${T.rail} ${T.border}`}>
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-600 text-lg font-black text-white shadow-lg shadow-indigo-950/50">Δ</div>
-            <div className="leading-tight">
-              <div className="text-sm font-extrabold tracking-tight">{data.board.titre}</div>
-              <div className={`text-[10px] font-medium ${T.faint}`}>Projet › tâche › sous-tâche</div>
+            <div className="hidden min-w-0 leading-tight sm:block">
+              <div className="truncate text-sm font-extrabold tracking-tight">{data.board.titre}</div>
+              <div className={`truncate text-[10px] font-medium ${T.faint}`}>Projet › tâche › sous-tâche</div>
             </div>
           </div>
-          <nav className={`flex rounded-xl border p-1 ${T.raise}`}>
+          <nav className={`flex shrink-0 rounded-xl border p-1 ${T.raise}`}>
             {[
               { id: 'roadmap', label: 'Roadmap', key: '1' },
               { id: 'kanban', label: 'Kanban', key: '2' },
@@ -2337,28 +2337,28 @@ function AuraPlanApp() {
               { id: 'notes', label: 'Notes', key: '4' }
             ].map((tab) => (
               <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)}
-                className={`rounded-lg px-3.5 py-1.5 text-xs font-bold transition ${activeTab === tab.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/40' : `${T.muted} hover:text-indigo-400`}`}>
+                className={`whitespace-nowrap rounded-lg px-3.5 py-1.5 text-xs font-bold transition ${activeTab === tab.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/40' : `${T.muted} hover:text-indigo-400`}`}>
                 {tab.label}<span className="ml-1.5 hidden font-mono text-[9px] opacity-50 sm:inline">{tab.key}</span>
               </button>
             ))}
           </nav>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher…"
-            className={`hidden w-44 rounded-xl border px-3 py-2 text-xs outline-none focus:border-indigo-500 md:block ${inputCls}`} />
+            className={`hidden w-40 rounded-xl border px-3 py-2 text-xs outline-none focus:border-indigo-500 xl:block ${inputCls}`} />
           {activeTab !== 'notes' ? (
             <>
             <button type="button"
               onClick={() => setAssigneeFilter(assigneeFilter === (sync.nom || '') ? 'ALL' : (sync.nom || 'ALL'))}
               title="N'afficher que ce qui m'est assigné"
-              className={`hidden shrink-0 rounded-xl px-2.5 py-2 text-xs font-bold transition lg:block
+              className={`hidden shrink-0 whitespace-nowrap rounded-xl px-2.5 py-2 text-xs font-bold transition 2xl:block
                 ${assigneeFilter !== 'ALL' && assigneeFilter === sync.nom ? 'border border-indigo-500 bg-indigo-600 text-white' : btnSecondary}`}>
               Mes tâches
             </button>
             <select value={assigneeFilter}
               onChange={(e) => { if (e.target.value === '__GERER__') { setIsEquipeOpen(true); return; } setAssigneeFilter(e.target.value); }}
-              className={`hidden w-32 lg:block ${inputCls}`}>
+              className={`hidden w-32 shrink-0 xl:block ${inputCls}`}>
               <option value="ALL">Toute l'équipe</option>
               {collaborators.map((c) => <option key={c} value={c}>{c}</option>)}
               <option value="__GERER__">Gérer l'équipe…</option>
@@ -2382,17 +2382,19 @@ function AuraPlanApp() {
                 : syncEtat.etat === 'ok' ? (participantsActifs.length ? `Avec ${participantsActifs.map((p) => p.nom).join(', ')}` : 'Tableau partagé et enregistré')
                   : syncEtat.etat === 'travail' ? 'Synchronisation…' : 'Partage inactif'}>
             <span className="flex items-center gap-1.5">
-              <span className={`h-2 w-2 rounded-full ${syncEtat.etat === 'ok' ? 'bg-emerald-400'
-                : syncEtat.etat === 'travail' ? 'bg-amber-400 animate-pulse'
+              <span className={`h-2 w-2 shrink-0 rounded-full ${syncEtat.etat === 'ok' ? 'bg-emerald-400'
+                : syncEtat.etat === 'travail' ? 'bg-amber-400'
                   : syncEtat.etat === 'lecture' ? 'bg-sky-400'
                     : syncEtat.etat === 'erreur' ? 'bg-rose-500' : 'bg-slate-500'}`} />
               {participantsActifs.length ? (
-                <span className="flex -space-x-1.5">
-                  {participantsActifs.slice(0, 4).map((p) => <Avatar key={p.id} name={p.nom} size="sm" />)}
+                <span className="hidden -space-x-1.5 2xl:flex">
+                  {participantsActifs.slice(0, 3).map((p) => <Avatar key={p.id} name={p.nom} size="sm" />)}
                 </span>
               ) : null}
-              {syncEtat.etat === 'ok' ? 'Partagé' : syncEtat.etat === 'lecture' ? 'Lecture seule'
-                : syncEtat.etat === 'erreur' ? 'À régler' : syncEtat.etat === 'travail' ? '…' : 'Partager'}
+              <span className="hidden w-[4.5rem] text-left lg:inline">
+                {syncEtat.etat === 'ok' ? 'Partagé' : syncEtat.etat === 'lecture' ? 'Lecture' 
+                  : syncEtat.etat === 'erreur' ? 'À régler' : syncEtat.etat === 'travail' ? 'Partagé' : 'Partager'}
+              </span>
             </span>
           </button>
           <button type="button" className={btnPrimary}
@@ -2408,12 +2410,14 @@ function AuraPlanApp() {
       </header>
 
       {/* --------------------------- Barre d'outils --------------------------- */}
-      {activeTab !== 'notes' ? (
-        <div className={`flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-2 text-xs ${T.panel}`}>
-          <div className="flex flex-wrap items-center gap-2">
+      <div className={`flex h-11 shrink-0 items-center justify-between gap-3 overflow-hidden border-b px-4 text-xs ${T.panel}`}>
+          <div className="flex min-w-0 items-center gap-2">
             {activeTab === 'roadmap' ? (
               <>
-                <button type="button" onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)} className={btnSecondary}>{isLeftPanelOpen ? 'Réduire la colonne' : 'Afficher la colonne'}</button>
+                <button type="button" onClick={() => setIsLeftPanelOpen(!isLeftPanelOpen)} className={`shrink-0 ${btnSecondary}`}>
+                  <span className="hidden lg:inline">{isLeftPanelOpen ? 'Réduire la colonne' : 'Afficher la colonne'}</span>
+                  <span className="lg:hidden">{isLeftPanelOpen ? '◀' : '▶'}</span>
+                </button>
                 <button type="button" onClick={() => setIsRightPanelOpen(!isRightPanelOpen)} className={`hidden xl:inline-block ${btnSecondary}`}>{isRightPanelOpen ? 'Masquer le détail' : 'Afficher le détail'}</button>
                 <button type="button" onClick={scrollToEvent} className={btnSecondary} title={`Aller à : ${event.label}`}>🚩 {event.label}</button>
                 <button type="button" onClick={scrollToToday} className={btnSecondary}>Aujourd'hui</button>
@@ -2427,13 +2431,19 @@ function AuraPlanApp() {
                 <span className={`ml-1 hidden text-[11px] xl:inline ${T.faint}`}>Glissez un bloc vers une autre ligne pour changer de collaborateur</span>
               </>
             ) : null}
+            {activeTab === 'notes' ? (
+              <>
+                <button type="button" className={btnSecondary} onClick={() => createNote(null)}>Nouvelle note</button>
+                <span className={`ml-1 hidden text-[11px] xl:inline ${T.faint}`}>Devis, contacts, comparatifs : tout ce qui n'est pas une tâche</span>
+              </>
+            ) : null}
             {activeTab === 'kanban' ? (
               <>
-                <span className={`text-[11px] font-semibold ${T.faint}`}>Grouper par</span>
+                <span className={`hidden text-[11px] font-semibold lg:inline ${T.faint}`}>Grouper par</span>
                 <div className={`flex rounded-xl border p-0.5 ${T.raise}`}>
                   {[{ id: 'status', label: 'Statut' }, { id: 'assignee', label: 'Personne' }, { id: 'priority', label: 'Priorité' }].map((opt) => (
                     <button key={opt.id} type="button" onClick={() => setGrouperPar(opt.id)}
-                      className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${grouperPar === opt.id ? 'bg-indigo-600 text-white' : `${T.muted} hover:text-indigo-400`}`}>
+                      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${grouperPar === opt.id ? 'bg-indigo-600 text-white' : `${T.muted} hover:text-indigo-400`}`}>
                       {opt.label}
                     </button>
                   ))}
@@ -2443,26 +2453,27 @@ function AuraPlanApp() {
             ) : null}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3">
             <button type="button" onClick={() => setIsConfigOpen(true)}
               title={`${event.label} — ${formatDateFr(event.date)} (cliquez pour changer la date)`}
               className="flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-[11px] font-extrabold text-rose-300 transition hover:bg-rose-500/20">
               <span className="jour-j-pin">🚩</span>
-              {daysToEvent > 0 ? `J-${daysToEvent}` : daysToEvent === 0 ? "C'est aujourd'hui" : `J+${Math.abs(daysToEvent)}`}
-              <span className="hidden font-mono font-medium opacity-70 xl:inline">{formatDateFr(event.date)}</span>
+              <span className="w-12 text-left font-mono tabular-nums">
+                {daysToEvent > 0 ? `J-${daysToEvent}` : daysToEvent === 0 ? 'Jour J' : `J+${Math.abs(daysToEvent)}`}
+              </span>
+              <span className="hidden font-mono font-medium opacity-70 2xl:inline">{formatDateFr(event.date)}</span>
             </button>
             <button type="button" onClick={undo} className={btnQuiet} title="Ctrl+Z">Annuler</button>
-            {activeTab !== 'kanban' ? (
+            {activeTab !== 'kanban' && activeTab !== 'notes' ? (
               <>
-                <span className={`font-semibold ${T.faint}`}>Zoom</span>
+                <span className={`hidden font-semibold lg:inline ${T.faint}`}>Zoom</span>
                 <input type="range" min="2" max="240" step="1" value={Math.round(columnWidth)}
                   onChange={(e) => { vueEnsemble.current = false; setColumnWidth(Number(e.target.value)); }} className="w-28" aria-label="Zoom" />
                 <button type="button" onClick={() => { vueEnsemble.current = true; fitAll(); }} className={btnSecondary}>Tout afficher</button>
               </>
             ) : null}
           </div>
-        </div>
-      ) : null}
+      </div>
 
       {/* ------------------------------ Contenu ------------------------------ */}
       <main className="relative flex flex-1 overflow-hidden">
