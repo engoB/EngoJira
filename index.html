@@ -456,6 +456,15 @@ const loadJson = (key, fallback) => {
 };
 const saveJson = (key, value) => { try { window.localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; } };
 
+// Un tableau vide mais valide : le nom, l'équipe et les colonnes sont conservés.
+const tableauVide = (base) => normalizeData({
+  board: (base && base.board) || undefined,
+  equipe: (base && base.equipe) || undefined,
+  columnLabels: (base && base.columnLabels) || undefined,
+  event: (base && base.event) || undefined,
+  projects: [], planning: [], notes: []
+});
+
 const loadData = () => {
   const stored = loadJson(STORAGE_KEY, null);
   if (!stored) return SEED;
@@ -724,7 +733,7 @@ function AuraPlanApp() {
 
   const [isDark, setIsDark] = useState(prefs.isDark !== false);
   const [activeTab, setActiveTab] = useState(['roadmap', 'kanban', 'planning', 'notes'].includes(prefs.tab) ? prefs.tab : 'roadmap');
-  const [columnWidth, setColumnWidth] = useState(clamp(Number(prefs.columnWidth) || 110, 3, 240));
+  const [columnWidth, setColumnWidth] = useState(clamp(Number(prefs.columnWidth) || 110, 1.5, 240));
   const [grouperPar, setGrouperPar] = useState(() => (prefs.grouperPar === 'assignee' || prefs.grouperPar === 'priority' ? prefs.grouperPar : 'status'));
 
   const [data, setData] = useState(loadData);
@@ -830,10 +839,12 @@ function AuraPlanApp() {
 
   const monNom = useCallback(() => (sync.nom || 'Quelqu’un'), [sync.nom]);
 
+  const journaliserRef = useRef(null);
   const journaliser = useCallback((task, texte) => ({
     ...task,
     journal: [...(task.journal || []).slice(-29), { id: uid('a'), auteur: monNom(), texte, date: new Date().toISOString() }]
   }), [monNom]);
+  journaliserRef.current = journaliser;
 
   const ajouterCommentaire = (taskId, texte) => {
     const propre = String(texte || '').trim();
@@ -880,6 +891,8 @@ function AuraPlanApp() {
   const [projectForm, setProjectForm] = useState(null);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isEquipeOpen, setIsEquipeOpen] = useState(false);
+  const [isResetOpen, setIsResetOpen] = useState(false);
+  const [resetConfirme, setResetConfirme] = useState('');
   const [nouveauMembre, setNouveauMembre] = useState({ nom: '', role: '' });
   const [membreEnEdition, setMembreEnEdition] = useState(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -887,11 +900,11 @@ function AuraPlanApp() {
   const [editingColumn, setEditingColumn] = useState(null);
   const [columnDraft, setColumnDraft] = useState('');
 
-  const anyModalOpen = !!(editingTask || taskForm || subtaskForm || editingEntry || entryForm || splitEntry || projectForm || isConfigOpen || isHelpOpen || isEquipeOpen);
+  const anyModalOpen = !!(editingTask || taskForm || subtaskForm || editingEntry || entryForm || splitEntry || projectForm || isConfigOpen || isHelpOpen || isEquipeOpen || isResetOpen);
   const closeAllModals = useCallback(() => {
     setEditingTask(null); setTaskForm(null); setSubtaskForm(null); setEditingEntry(null);
     setEntryForm(null); setSplitEntry(null); setProjectForm(null); setIsConfigOpen(false); setIsHelpOpen(false);
-    setIsEquipeOpen(false); setMembreEnEdition(null);
+    setIsEquipeOpen(false); setMembreEnEdition(null); setIsResetOpen(false); setResetConfirme('');
   }, []);
 
   useEffect(() => { saveJson(PREFS_KEY, { isDark, tab: activeTab, columnWidth, openProjects, grouperPar }); }, [openProjects, isDark, activeTab, columnWidth, grouperPar]);
@@ -972,14 +985,20 @@ function AuraPlanApp() {
     };
     if (activeTab === 'planning') planning.forEach((e) => consider(e.startDate, e.duration));
     else projects.forEach((p) => {
+      // On ne tient compte que des lignes visibles : replier un projet resserre la frise.
       consider(p.startDate, p.duration);
-      p.tasks.forEach((t) => { consider(t.startDate, t.duration); t.subtasks.forEach((s) => consider(s.startDate, s.duration)); });
+      if (!openProjects[p.id]) return;
+      p.tasks.forEach((t) => {
+        consider(t.startDate, t.duration);
+        if (!openTasks[t.id]) return;
+        t.subtasks.forEach((sb) => consider(sb.startDate, sb.duration));
+      });
     });
     const ev = parseDate(event.date);
     if (activeTab !== 'planning') { if (ev < min) min = ev; if (ev > max) max = ev; }
     const start = getMonday(addDays(min, -3));
     return { timelineStart: start, totalDays: clamp(diffDays(addDays(max, 5), start), 28, 900) };
-  }, [projects, planning, activeTab, event.date]);
+  }, [projects, planning, activeTab, event.date, openProjects, openTasks]);
 
   const timelineWeeks = useMemo(() => {
     const weeks = []; let current = null;
@@ -1095,7 +1114,10 @@ function AuraPlanApp() {
         projects: prev.projects.map((p) => ({
           ...p,
           tasks: p.tasks.map((t) => {
-            if (t.id === taskId) return { ...t, status, rank: ranks.get(t.id) };
+            if (t.id === taskId) {
+              const deplace = { ...t, status, rank: ranks.get(t.id) };
+              return t.status === status ? deplace : journaliserRef.current(deplace, `a déplacé la tâche vers « ${statusLabel(status)} »`);
+            }
             return ranks.has(t.id) ? { ...t, rank: ranks.get(t.id) } : t;
           })
         }))
@@ -1105,7 +1127,7 @@ function AuraPlanApp() {
       const fresh = next.projects.find((p) => p.id === celebrateProjectId);
       if (fresh && projectProgress(fresh) === 100) { triggerConfetti(); pushToast(`« ${fresh.title} » est bouclé à 100 %`, 'success'); }
     }
-  }, [commit, projectProgress, pushToast]);
+  }, [commit, projectProgress, pushToast, statusLabel]);
 
   const saveColumnLabel = (status) => {
     const label = columnDraft.trim();
@@ -1179,6 +1201,29 @@ function AuraPlanApp() {
       if (fresh && projectProgress(fresh) === 100) { triggerConfetti(); pushToast(`« ${fresh.title} » est bouclé à 100 %`, 'success'); }
     }
   }, [commit, projectProgress, pushToast]);
+
+  /* --------------------------- Remise à zéro --------------------------- */
+  // Trois portées, de la plus douce à la plus radicale.
+  const viderTableau = () => {
+    commit(() => tableauVide(dataRef.current), 'Tableau vidé — les projets sont partis');
+    setIsResetOpen(false); setResetConfirme('');
+    setSelectedProjectId(null); setSelectedNoteId(null);
+  };
+
+  const rechargerExemple = () => {
+    commit(() => SEED, 'Tableau d’exemple rechargé');
+    setIsResetOpen(false); setResetConfirme('');
+    setSelectedProjectId(SEED.projects[0] ? SEED.projects[0].id : null);
+  };
+
+  // Efface tout ce que cet appareil retient : données, réglages, mot de passe, jeton.
+  const oublierAppareil = () => {
+    ['auraplan_data_v21', 'auraplan_prefs_v21', SYNC_KEY, PASS_KEY, 'auraplan_majs_v22',
+     'auraplan_suppr_v22', 'auraplan_appareil'].forEach((k) => {
+      try { window.localStorage.removeItem(k); } catch (e) { /* no-op */ }
+    });
+    window.location.reload();
+  };
 
   /* ------------------------------- Équipe ------------------------------- */
   const ajouterMembre = (nom, role) => {
@@ -1473,11 +1518,19 @@ function AuraPlanApp() {
   }, [columnWidth, syncViewport]);
 
 
+  // Mesuré après rendu, au centième de pixel près : l'arrondi à l'entier faisait
+  // perdre jusqu'à un quart de la largeur sur les longues périodes.
   const fitAll = useCallback(() => {
-    const vp = document.getElementById('timeline-viewport');
-    if (!vp) return;
-    setColumnWidth(clamp(Math.floor((vp.clientWidth - nameColRef.current - 16) / Math.max(1, totalDays)), 3, 240));
-    vp.scrollLeft = 0;
+    const appliquer = () => {
+      const vp = document.getElementById('timeline-viewport');
+      if (!vp) return;
+      const dispo = vp.clientWidth - nameColRef.current - 4;
+      const exact = dispo / Math.max(1, totalDays);
+      setColumnWidth(clamp(Math.floor(exact * 100) / 100, 1.5, 240));
+      vp.scrollLeft = 0;
+    };
+    appliquer();
+    window.requestAnimationFrame(appliquer);   // second passage : les panneaux ont fini de bouger
   }, [totalDays]);
 
   const focusSprint = useCallback(() => {
@@ -1488,6 +1541,14 @@ function AuraPlanApp() {
     const offset = diffDays(getMonday(new Date()), timelineStart);
     window.requestAnimationFrame(() => { vp.scrollLeft = Math.max(0, offset * width); });
   }, [timelineStart]);
+
+  // Si l'on est en vue d'ensemble, plier ou déplier recadre automatiquement.
+  const vueEnsemble = useRef(false);
+  useEffect(() => {
+    if (activeTab !== 'roadmap' || !vueEnsemble.current) return undefined;
+    const id = window.setTimeout(() => fitAll(), 60);
+    return () => window.clearTimeout(id);
+  }, [openProjects, openTasks, activeTab, fitAll]);
 
   const scrollToEvent = useCallback(() => {
     const vp = document.getElementById('timeline-viewport');
@@ -1623,7 +1684,7 @@ function AuraPlanApp() {
       if (e.key === '3') setActiveTab('planning');
       if (e.key === '4') setActiveTab('notes');
       if (e.key.toLowerCase() === 't') scrollToToday();
-      if (e.key.toLowerCase() === 'f') fitAll();
+      if (e.key.toLowerCase() === 'f') { vueEnsemble.current = true; fitAll(); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); scrollTimelineBy(-7); }
       if (e.key === 'ArrowRight') { e.preventDefault(); scrollTimelineBy(7); }
     };
@@ -2140,6 +2201,10 @@ function AuraPlanApp() {
           </form>
 
           <button type="button" onClick={() => enterBoard('', true)} className={`mt-2 w-full ${btnQuiet}`}>Travailler seul, sur cet appareil</button>
+          <button type="button" className={`mt-1 w-full ${btnQuiet}`}
+            onClick={() => { if (window.confirm('Effacer les réglages de cet appareil (mot de passe, jeton, tableau local) ?\n\nLa copie enregistrée dans le dépôt n’est pas touchée.')) oublierAppareil(); }}>
+            Repartir de zéro sur cet appareil
+          </button>
 
           {!pageSecurisee() ? (
             <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-amber-200">
@@ -2297,8 +2362,9 @@ function AuraPlanApp() {
             {activeTab !== 'kanban' ? (
               <>
                 <span className={`font-semibold ${T.faint}`}>Zoom</span>
-                <input type="range" min="3" max="240" value={columnWidth} onChange={(e) => setColumnWidth(Number(e.target.value))} className="w-28" aria-label="Zoom" />
-                <button type="button" onClick={fitAll} className={btnSecondary}>Tout afficher</button>
+                <input type="range" min="2" max="240" step="1" value={Math.round(columnWidth)}
+                  onChange={(e) => { vueEnsemble.current = false; setColumnWidth(Number(e.target.value)); }} className="w-28" aria-label="Zoom" />
+                <button type="button" onClick={() => { vueEnsemble.current = true; fitAll(); }} className={btnSecondary}>Tout afficher</button>
               </>
             ) : null}
           </div>
@@ -3385,6 +3451,15 @@ function AuraPlanApp() {
               </div>
             </div>
 
+            {/* Remise à zéro */}
+            <div className={`space-y-2 rounded-xl border p-3 ${T.raise}`}>
+              <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Repartir de zéro</h4>
+              <p className={`text-[11px] leading-relaxed ${T.faint}`}>
+                Vider le tableau, recharger l'exemple, ou effacer tout ce que cet appareil retient.
+              </p>
+              <button type="button" className={`w-full ${btnSecondary}`} onClick={() => { setIsConfigOpen(false); setIsResetOpen(true); }}>Remise à zéro…</button>
+            </div>
+
             {/* Entretien du dépôt */}
             <div className={`space-y-2 rounded-xl border p-3 ${T.raise}`}>
               <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Entretien</h4>
@@ -3582,6 +3657,59 @@ function AuraPlanApp() {
         </Modal>
       ) : null}
 
+      {isResetOpen ? (
+        <Modal T={T} title="Repartir de zéro" subtitle="Trois portées, de la plus douce à la plus radicale"
+          onClose={() => { setIsResetOpen(false); setResetConfirme(''); }}
+          footer={<>
+            <button type="button" className="text-[11px] font-bold text-indigo-400" onClick={exportJson}>Exporter d'abord une copie</button>
+            <button type="button" className={btnSecondary} onClick={() => { setIsResetOpen(false); setResetConfirme(''); }}>Annuler</button>
+          </>}>
+          <div className="space-y-3">
+            <p className={`rounded-xl border p-3 text-[11px] leading-relaxed ${T.border} ${T.inset} ${T.muted}`}>
+              Le tableau contient actuellement <strong>{projects.length} projet(s)</strong>,{' '}
+              <strong>{allTasks.length} tâche(s)</strong>, <strong>{planning.length} créneau(x)</strong> et{' '}
+              <strong>{notes.length} note(s)</strong>. Pensez à exporter une copie avant, c'est irréversible.
+            </p>
+
+            <div className={`space-y-2 rounded-xl border p-3 ${T.raise}`}>
+              <h4 className="text-[12px] font-extrabold">Vider le tableau</h4>
+              <p className={`text-[11px] leading-relaxed ${T.faint}`}>
+                Supprime tous les projets, tâches, créneaux et notes. Le nom du tableau, l'équipe et les
+                colonnes sont conservés — vous repartez d'une page blanche, prête à l'emploi.
+              </p>
+              <button type="button" className={`w-full ${btnSecondary}`} onClick={viderTableau}>Vider le tableau</button>
+            </div>
+
+            <div className={`space-y-2 rounded-xl border p-3 ${T.raise}`}>
+              <h4 className="text-[12px] font-extrabold">Recharger l'exemple</h4>
+              <p className={`text-[11px] leading-relaxed ${T.faint}`}>
+                Remplace le contenu par le tableau de démonstration, celui qui explique chaque fonction.
+                Utile pour reprendre en main l'outil.
+              </p>
+              <button type="button" className={`w-full ${btnSecondary}`} onClick={rechargerExemple}>Recharger l'exemple</button>
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-rose-500/40 bg-rose-500/5 p-3">
+              <h4 className="text-[12px] font-extrabold text-rose-300">Oublier cet appareil</h4>
+              <p className={`text-[11px] leading-relaxed ${T.faint}`}>
+                Efface tout ce que ce navigateur retient : le tableau local, les réglages, le mot de passe
+                et le jeton. {peutEcrire || syncEtat.etat === 'lecture'
+                  ? <>La copie enregistrée dans votre dépôt <strong>n'est pas touchée</strong> : vous la retrouverez en revenant avec le mot de passe.</>
+                  : <>Comme le partage est inactif, <strong>ces données ne seront récupérables que depuis votre export</strong>.</>}
+              </p>
+              <Field T={T} label="Tapez EFFACER pour confirmer">
+                <input className={inputCls} value={resetConfirme} onChange={(e) => setResetConfirme(e.target.value)} placeholder="EFFACER" />
+              </Field>
+              <button type="button" disabled={resetConfirme.trim().toUpperCase() !== 'EFFACER'}
+                onClick={oublierAppareil}
+                className={`w-full ${btnDanger} ${resetConfirme.trim().toUpperCase() !== 'EFFACER' ? 'cursor-not-allowed opacity-40' : ''}`}>
+                Tout effacer sur cet appareil
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
       {isHelpOpen ? (
         <Modal T={T} title="Prise en main" onClose={() => setIsHelpOpen(false)}
           footer={<><span className={`text-[11px] ${T.faint}`}>Tout est stocké dans votre navigateur.</span><button type="button" className={btnSecondary} onClick={() => setIsHelpOpen(false)}>Fermer</button></>}>
@@ -3596,6 +3724,7 @@ function AuraPlanApp() {
             <li><strong>Équipe</strong> — bouton « Équipe » en haut à droite : ajoutez, renommez ou retirez quelqu'un. Renommer met à jour toutes ses tâches et ses créneaux ; retirer demande à qui confier son travail. Une personne sans aucune tâche apparaît quand même dans le planning.</li>
             <li><strong>Notes</strong> — l'endroit pour les devis, contacts et comparatifs, afin de garder les autres vues lisibles. Une note peut être rattachée à un projet.</li>
             <li><strong>À plusieurs</strong> — envoyez l'adresse du site et le mot de passe. Le tableau est enregistré, chiffré, dans votre dépôt GitHub : chacun le retrouve depuis n'importe quel ordinateur, à tout moment. Pour pouvoir enregistrer ses propres modifications, il faut aussi coller un jeton (bouton « Partager », guide fourni).</li>
+            <li><strong>Repartir de zéro</strong> — dans « Partager », le bouton « Remise à zéro » permet de vider le tableau, de recharger l'exemple, ou d'effacer ce que cet appareil retient. Pensez à exporter une copie avant.</li>
             <li className="pt-2"><strong>Raccourcis</strong> — <span className="font-mono">1 2 3 4</span> changent de vue, <span className="font-mono">T</span> recentre sur aujourd'hui, <span className="font-mono">F</span> affiche toute la période, <span className="font-mono">Ctrl+Z</span> annule, <span className="font-mono">Échap</span> ferme.</li>
           </ul>
         </Modal>
