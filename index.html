@@ -1866,20 +1866,39 @@ function AuraPlanApp() {
       if (r.status === 404) return { absent: true };
       if (r.status === 401 || r.status === 403) throw new Error(r.status === 401 ? 'jeton refusé' : 'accès refusé (droits du jeton ?)');
       if (!r.ok) throw new Error('lecture impossible (' + r.status + ')');
+      if (r.status === 404 && sync.brancheSite && sync.brancheSite !== sync.branch) {
+        const secours = await fetch(`${cheminApi()}?ref=${encodeURIComponent(sync.brancheSite)}`,
+          { headers: { Authorization: `Bearer ${sync.token}`, Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+        if (secours.ok) {
+          const js = await secours.json();
+          shaRef.current = null;      // il faudra créer le fichier sur la branche des données
+          return { fichier: JSON.parse(new TextDecoder().decode(depuisBase64(js.content || ''))), depuisSite: true };
+        }
+      }
       const j = await r.json();
       shaRef.current = j.sha;
       const texte = new TextDecoder().decode(depuisBase64(j.content || ''));
       return { fichier: JSON.parse(texte) };
     }
-    const url = `https://raw.githubusercontent.com/${sync.owner}/${sync.repo}/${sync.branch}/${FICHIER}?t=${Date.now()}`;
-    const entetesBrut = etagRef.current ? { 'If-None-Match': etagRef.current } : {};
-    const r = await fetch(url, { cache: 'no-store', headers: entetesBrut });
-    if (r.status === 304) return { inchange: true };
-    try { const et = r.headers && r.headers.get && r.headers.get('ETag'); if (et) etagRef.current = et; } catch (e) { /* no-op */ }
-    if (r.status === 404) return { absent: true };
-    if (!r.ok) throw new Error('lecture impossible (' + r.status + ')');
-    return { fichier: JSON.parse(await r.text()) };
-  }, [sync.token, sync.branch, sync.owner, sync.repo, cheminApi]);
+    const lireBrut = async (branche, avecEtag) => {
+      const url = `https://raw.githubusercontent.com/${sync.owner}/${sync.repo}/${branche}/${FICHIER}?t=${Date.now()}`;
+      const entetes = avecEtag && etagRef.current ? { 'If-None-Match': etagRef.current } : {};
+      const r = await fetch(url, { cache: 'no-store', headers: entetes });
+      if (r.status === 304) return { inchange: true };
+      try { const et = r.headers && r.headers.get && r.headers.get('ETag'); if (et) etagRef.current = et; } catch (e) { /* no-op */ }
+      if (r.status === 404) return { absent: true };
+      if (!r.ok) throw new Error('lecture impossible (' + r.status + ')');
+      return { fichier: JSON.parse(await r.text()) };
+    };
+    const principal = await lireBrut(sync.branch, true);
+    if (!principal.absent) return principal;
+    // Les tableaux créés avec les versions précédentes vivent sur la branche du site.
+    if (sync.brancheSite && sync.brancheSite !== sync.branch) {
+      const secours = await lireBrut(sync.brancheSite, false);
+      if (!secours.absent) return { ...secours, depuisSite: true };
+    }
+    return { absent: true };
+  }, [sync.token, sync.branch, sync.brancheSite, sync.owner, sync.repo, cheminApi]);
 
   const ecrireDistant = useCallback(async (charge, sha) => {
     const r = await fetch(cheminApi(), {
@@ -1913,6 +1932,10 @@ function AuraPlanApp() {
 
       let distant = null;
       const lu = await lireDistant(cle);
+      // Aucun tableau lisible : sans jeton, c'est presque toujours un dépôt privé.
+      const messageVide = sync.token
+        ? 'Aucun tableau publié pour l’instant dans ce dépôt : le vôtre va y être déposé.'
+        : 'Aucun tableau lisible à cette adresse. Soit rien n’a encore été publié, soit le dépôt est privé — dans ce cas il faut un jeton pour le lire.';
       if (lu.inchange && !aEcrire.current && !forcerEcriture) {
         setSyncEtat((p) => ({ ...p, etat: peutEcrire ? 'ok' : 'lecture', message: '', dernier: Date.now() }));
         enCours.current = false;
@@ -1930,7 +1953,14 @@ function AuraPlanApp() {
       }
 
       const local = dernierFichier.current;
-      const fusion = distant ? fusionner(local, distant) : { ...local, presence: (local && local.presence) || {} };
+      // Un appareil qui n'a encore que la démonstration adopte le tableau du groupe
+      // en entier : le fusionner ferait cohabiter deux tableaux sans rapport.
+      const localEstDemo = JSON.stringify(versFichier(dataRef.current)) === JSON.stringify(versFichier(SEED));
+      const fusion = !distant
+        ? { ...local, presence: (local && local.presence) || {} }
+        : localEstDemo
+          ? { contenu: distant.contenu, majs: distant.majs, supprimes: distant.supprimes, presence: distant.presence || {} }
+          : fusionner(local, distant);
 
       // Ce que le dépôt sait et que nous n'avions pas encore
       const nouveauLocal = depuisFichier(fusion.contenu);
@@ -1992,7 +2022,10 @@ function AuraPlanApp() {
         dernierFichier.current.presence = presence;
         setSyncEtat((p) => ({ ...p, etat: 'ok', message: '', dernier: Date.now(), participants, ecritures: p.ecritures + 1 }));
       } else {
-        setSyncEtat((p) => ({ ...p, etat: peutEcrire ? 'ok' : 'lecture', message: '', dernier: Date.now(), participants, lectures: p.lectures + 1 }));
+        // Un invité qui ne trouve rien doit le savoir : c'est le cas le plus déroutant.
+        const rienALire = !distant && !peutEcrire;
+        setSyncEtat((p) => ({ ...p, etat: rienALire ? 'vide' : (peutEcrire ? 'ok' : 'lecture'),
+          message: rienALire ? messageVide : '', dernier: Date.now(), participants, lectures: p.lectures + 1 }));
       }
     } catch (err) {
       setSyncEtat((p) => ({ ...p, etat: 'erreur', message: String((err && err.message) || err) }));
@@ -2095,6 +2128,26 @@ function AuraPlanApp() {
   const adresseTableau = useMemo(() => {
     try { return window.location.origin + window.location.pathname; } catch (e) { return ''; }
   }, []);
+
+  const texteInvitation = () => [
+    `Rejoins le tableau « ${data.board.titre} » :`,
+    '',
+    `1. Ouvre ${adresseTableau}`,
+    '2. Mets ton prénom, puis ce mot de passe : ' + (password || '(à te communiquer)'),
+    sync.token
+      ? '3. Bouton « Partager » en haut à droite, colle ce jeton dans « Jeton GitHub » :\n   ' + sync.token
+      : '3. Sans jeton, tu pourras consulter le tableau mais pas enregistrer tes modifications.',
+    '',
+    'Le tableau est chiffré avec le mot de passe : sans lui, il est illisible.'
+  ].join('\n');
+
+  const copierInvitation = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(texteInvitation());
+      else throw new Error('presse-papiers indisponible');
+      pushToast('Invitation copiée — collez-la dans un message', 'success');
+    } catch (e) { pushToast('Copiez le texte affiché', 'info'); }
+  };
 
   const copierAdresse = async () => {
     try {
@@ -2379,22 +2432,25 @@ function AuraPlanApp() {
           <button type="button" onClick={() => setIsHelpOpen(true)} className={btnQuiet} title="Aide">?</button>
           <button type="button" onClick={() => setIsConfigOpen(true)} className={btnSecondary}
             title={syncEtat.etat === 'erreur' ? `Partage en erreur : ${syncEtat.message}`
-              : syncEtat.etat === 'lecture' ? 'Lecture seule — ajoutez un jeton pour enregistrer'
+              : syncEtat.etat === 'vide' ? syncEtat.message
+                : syncEtat.etat === 'lecture' ? 'Lecture seule — ajoutez un jeton pour enregistrer'
                 : syncEtat.etat === 'ok' ? (participantsActifs.length ? `Avec ${participantsActifs.map((p) => p.nom).join(', ')}` : 'Tableau partagé et enregistré')
                   : syncEtat.etat === 'travail' ? 'Synchronisation…' : 'Partage inactif'}>
             <span className="flex items-center gap-1.5">
               <span className={`h-2 w-2 shrink-0 rounded-full ${syncEtat.etat === 'ok' ? 'bg-emerald-400'
                 : syncEtat.etat === 'travail' ? 'bg-amber-400'
                   : syncEtat.etat === 'lecture' ? 'bg-sky-400'
-                    : syncEtat.etat === 'erreur' ? 'bg-rose-500' : 'bg-slate-500'}`} />
+                    : syncEtat.etat === 'vide' ? 'bg-amber-400'
+                      : syncEtat.etat === 'erreur' ? 'bg-rose-500' : 'bg-slate-500'}`} />
               {participantsActifs.length ? (
                 <span className="hidden -space-x-1.5 2xl:flex">
                   {participantsActifs.slice(0, 3).map((p) => <Avatar key={p.id} name={p.nom} size="sm" />)}
                 </span>
               ) : null}
               <span className="hidden w-[4.5rem] text-left lg:inline">
-                {syncEtat.etat === 'ok' ? 'Partagé' : syncEtat.etat === 'lecture' ? 'Lecture' 
-                  : syncEtat.etat === 'erreur' ? 'À régler' : syncEtat.etat === 'travail' ? 'Partagé' : 'Partager'}
+                {syncEtat.etat === 'ok' ? 'Partagé' : syncEtat.etat === 'lecture' ? 'Lecture'
+                  : syncEtat.etat === 'vide' ? 'Vide' : syncEtat.etat === 'erreur' ? 'À régler'
+                    : syncEtat.etat === 'travail' ? 'Partagé' : 'Partager'}
               </span>
             </span>
           </button>
@@ -3491,8 +3547,9 @@ function AuraPlanApp() {
                   <span className="text-[12px] font-extrabold">
                     {syncEtat.etat === 'ok' ? 'Tableau partagé et enregistré'
                       : syncEtat.etat === 'lecture' ? 'Lecture seule'
-                        : syncEtat.etat === 'erreur' ? 'Il y a un point à régler'
-                          : syncEtat.etat === 'travail' ? 'Synchronisation en cours…' : 'Partage inactif'}
+                        : syncEtat.etat === 'vide' ? 'Aucun tableau trouvé'
+                          : syncEtat.etat === 'erreur' ? 'Il y a un point à régler'
+                            : syncEtat.etat === 'travail' ? 'Synchronisation en cours…' : 'Partage inactif'}
                   </span>
                 </span>
                 <button type="button" className={btnSecondary} onClick={() => synchroniser(true)}>Synchroniser</button>
@@ -3500,6 +3557,9 @@ function AuraPlanApp() {
 
               {syncEtat.etat === 'erreur' ? (
                 <p className="mt-2 rounded-lg border border-rose-500/40 bg-rose-500/10 p-2 text-[11px] text-rose-200">{syncEtat.message}</p>
+              ) : null}
+              {syncEtat.etat === 'vide' ? (
+                <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] leading-relaxed text-amber-200">{syncEtat.message}</p>
               ) : null}
               {syncEtat.etat === 'lecture' ? (
                 <p className={`mt-2 text-[11px] ${T.faint}`}>Vous voyez le tableau des autres, mais vos modifications restent sur cet appareil. Ajoutez un jeton ci-dessous pour pouvoir enregistrer.</p>
@@ -3533,9 +3593,21 @@ function AuraPlanApp() {
             <div className={`space-y-3 rounded-xl border p-3 ${T.raise}`}>
               <h4 className="text-[11px] font-extrabold uppercase tracking-wide">Réglages</h4>
 
+              <div className={`space-y-2 rounded-xl border p-2.5 ${T.border} ${T.inset}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-[10px] font-bold uppercase tracking-wide ${T.faint}`}>Inviter quelqu'un</span>
+                  <button type="button" className="text-[11px] font-bold text-indigo-400" onClick={copierInvitation}>Copier l'invitation</button>
+                </div>
+                <p className={`text-[11px] leading-relaxed ${T.faint}`}>
+                  Trois éléments à transmettre : l'adresse, le mot de passe, et le jeton si la personne
+                  doit pouvoir enregistrer. Le bouton ci-dessus prépare le message complet.
+                </p>
+                <pre className={`max-h-28 overflow-auto whitespace-pre-wrap rounded-lg border p-2 font-mono text-[10px] leading-relaxed ${T.border} ${T.muted}`}>{texteInvitation()}</pre>
+              </div>
+
               <div className={`rounded-xl border p-2.5 ${T.border} ${T.inset}`}>
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className={`text-[10px] font-bold uppercase tracking-wide ${T.faint}`}>Adresse à partager</span>
+                  <span className={`text-[10px] font-bold uppercase tracking-wide ${T.faint}`}>Adresse seule</span>
                   <button type="button" className="text-[11px] font-bold text-indigo-400" onClick={copierAdresse}>Copier</button>
                 </div>
                 <code className="block break-all font-mono text-[10px] text-indigo-300">{adresseTableau}</code>
