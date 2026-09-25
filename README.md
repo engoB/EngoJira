@@ -2,12 +2,12 @@
 
 <p align="center">
   <a href="https://engob.github.io/EngoJira/"><img alt="Essayer" src="https://img.shields.io/badge/Essayer-Essayer-0b0b0f?style=for-the-badge&labelColor=0b0b0f"></a>
-  <img alt="Statut" src="https://img.shields.io/badge/Statut-En_construction-d97706?style=for-the-badge&labelColor=0b0b0f">
-  <a href="https://engob.github.io/portofolio/projets/auraplan/"><img alt="Portfolio" src="https://img.shields.io/badge/Portfolio-S%C3%A9bastien_Khai-4f46e5?style=for-the-badge&labelColor=0b0b0f"></a>
+  <a href="https://engob.github.io/portofolio/projets/auraplan/"><img alt="Portfolio" src="https://img.shields.io/badge/Portfolio-Senshi_Kabai-4f46e5?style=for-the-badge&labelColor=0b0b0f"></a>
 </p>
 
 <h1 align="center">AuraPlan Studio</h1>
 <p align="center"><b>Roadmap, kanban, planning et notes. Une seule page.</b><br>Un studio de planification léger pour piloter des projets en solo ou en équipe, sans abonnement et sans confier ses données à un tiers.</p>
+<p align="center"><sub>Statut : <b>En construction</b></sub></p>
 
 ---
 
@@ -41,4 +41,4 @@ Jira-style tools are powerful but heavy for small projects, and they host your d
 
 ---
 
-<p align="center"><sub>Conçu, développé et mis en ligne par <b>Sébastien Khai</b>, Product Builder · <a href="https://engob.github.io/portofolio/">portfolio</a> · <a href="https://engob.github.io/portofolio/projets/auraplan/">fiche du projet</a><br>© 2026 Sébastien Khai — tous droits réservés.</sub></p>
+<p align="center"><sub>Conçu, développé et mis en ligne par <b>Senshi Kabai</b>, Product Builder · <a href="https://engob.github.io/portofolio/">portfolio</a> · <a href="https://engob.github.io/portofolio/projets/auraplan/">fiche du projet</a><br>© 2026 Senshi Kabai — tous droits réservés.</sub></p>
