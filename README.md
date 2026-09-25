@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://engob.github.io/EngoJira/"><img alt="Essayer" src="https://img.shields.io/badge/Essayer-Essayer-0b0b0f?style=for-the-badge&labelColor=0b0b0f"></a>
-  <a href="https://engob.github.io/portofolio/projets/auraplan/"><img alt="Portfolio" src="https://img.shields.io/badge/Portfolio-Senshi_Kabai-4f46e5?style=for-the-badge&labelColor=0b0b0f"></a>
+  <a href="https://www.senshicore.com/projets/auraplan/"><img alt="Portfolio" src="https://img.shields.io/badge/Portfolio-Senshi_Kabai-4f46e5?style=for-the-badge&labelColor=0b0b0f"></a>
 </p>
 
 <h1 align="center">AuraPlan Studio</h1>
@@ -41,4 +41,4 @@ Jira-style tools are powerful but heavy for small projects, and they host your d
 
 ---
 
-<p align="center"><sub>Conçu, développé et mis en ligne par <b>Senshi Kabai</b>, Product Builder · <a href="https://engob.github.io/portofolio/">portfolio</a> · <a href="https://engob.github.io/portofolio/projets/auraplan/">fiche du projet</a><br>© 2026 Senshi Kabai — tous droits réservés.</sub></p>
+<p align="center"><sub>Conçu, développé et mis en ligne par <b>Senshi Kabai</b>, Product Builder · <a href="https://www.senshicore.com/">portfolio</a> · <a href="https://www.senshicore.com/projets/auraplan/">fiche du projet</a><br>© 2026 Senshi Kabai — tous droits réservés.</sub></p>
